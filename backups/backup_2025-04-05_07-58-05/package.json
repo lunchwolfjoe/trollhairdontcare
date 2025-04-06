@@ -1,0 +1,31 @@
+{
+  "name": "trollhairdontcare",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "frontend-new"
+  ],
+  "scripts": {
+    "dev": "cd frontend-new && npm run dev",
+    "dev:safe": "powershell -ExecutionPolicy Bypass -File ./tools/start-dev.ps1",
+    "dev:bat": "tools\\start-dev.bat",
+    "start": "start-dev.bat",
+    "restart": "restart-dev.bat",
+    "ps-restart": "powershell -ExecutionPolicy Bypass -File ./restart-dev.ps1",
+    "fix-react": "cd frontend-new && fix-react-mismatch.bat",
+    "clean-restart": "clean-restart.bat",
+    "fix-date-fns": "date-fns-fix.bat",
+    "build": "cd frontend-new && npm run build",
+    "preview": "cd frontend-new && npm run preview",
+    "lint": "cd frontend-new && npm run lint",
+    "test": "cd frontend-new && npm run test"
+  },
+  "devDependencies": {
+    "http-proxy": "^1.18.1",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.4",
+    "dotenv": "^16.4.7"
+  }
+}

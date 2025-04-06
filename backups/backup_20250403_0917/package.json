@@ -1,0 +1,24 @@
+{
+  "name": "trollhairdontcare",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "frontend-new"
+  ],
+  "scripts": {
+    "dev": "cd frontend-new && npm run dev",
+    "start": "start-dev.bat",
+    "restart": "restart-dev.bat",
+    "ps-restart": "powershell -ExecutionPolicy Bypass -File ./restart-dev.ps1",
+    "fix-react": "cd frontend-new && fix-react-mismatch.bat",
+    "clean-restart": "clean-restart.bat",
+    "fix-date-fns": "date-fns-fix.bat",
+    "build": "cd frontend-new && npm run build",
+    "preview": "cd frontend-new && npm run preview",
+    "lint": "cd frontend-new && npm run lint",
+    "test": "cd frontend-new && npm run test"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+} 

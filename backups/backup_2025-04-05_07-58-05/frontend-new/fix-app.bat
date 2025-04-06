@@ -1,0 +1,19 @@
+@echo off
+echo Killing all Node.js processes...
+taskkill /F /IM node.exe 2>NUL
+
+echo Clearing cached ports...
+timeout /t 2 /nobreak >NUL
+
+echo Installing Vite and dependencies in the correct location...
+cd frontend-new
+call npm install vite --save-dev
+call npm install @mui/icons-material --save
+call npm install @vitejs/plugin-react --save-dev
+
+echo Creating missing components...
+mkdir -p src\features\admin
+echo Creating AdminDashboard...
+
+echo Starting development server...
+call npm run dev -- --port=5173 --host 
