@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # TrollHairDontCare - Festival Management System
 
 ## Project Overview
@@ -107,3 +108,6 @@ To verify that the Supabase connection is working correctly:
 - Implement additional frontend pages for volunteer management, mapping, etc.
 - Set up storage buckets in Supabase for file uploads
 - Deploy the frontend to Vercel 
+=======
+# trollhairdontcare
+>>>>>>> 9b67c4dc9c01b30b8e798d636ae27b4aad4e2c34
