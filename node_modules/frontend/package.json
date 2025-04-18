@@ -8,7 +8,7 @@
     "proxy": "node simple-proxy.js",
     "dev:proxy": "concurrently \"npm run proxy\" \"npm run dev\"",
     "build": "tsc && vite build",
-    "build:prod": "vite build --mode production",
+    "build:prod": "vite build --mode production --emptyOutDir",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview"
   },

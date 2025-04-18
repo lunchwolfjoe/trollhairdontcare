@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 import path from 'path'
 
 // https://vitejs.dev/config/
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [react()],
   resolve: {
     alias: {
@@ -23,13 +23,14 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
-    minify: true,
-    sourcemap: false,
+    minify: mode === 'production',
+    sourcemap: mode !== 'production',
     rollupOptions: {
       input: {
         main: path.resolve(__dirname, 'index.html'),
       },
       onwarn(warning, warn) {
+        // Ignore TypeScript errors during build
         if (warning.code === 'TYPESCRIPT_ERROR') return;
         warn(warning);
       },
@@ -37,6 +38,14 @@ export default defineConfig({
     commonjsOptions: {
       include: [/node_modules/],
     },
+  },
+  esbuild: {
+    // Skip type checking in production mode
+    logOverride: mode === 'production' 
+      ? { 'this-is-undefined-in-esm': 'silent' } 
+      : {},
+    // Drop console logs and debugger statements in production
+    drop: mode === 'production' ? ['console', 'debugger'] : [],
   },
   optimizeDeps: {
     include: [
@@ -52,6 +61,6 @@ export default defineConfig({
       },
     }
   },
-})
+}))
 
 

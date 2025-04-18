@@ -1,26 +1,33 @@
 {
   "version": 2,
-  "builds": [
+  "buildCommand": "npm run build-force",
+  "outputDirectory": "dist",
+  "framework": "vite",
+  "headers": [
     {
-      "src": "package.json",
-      "use": "@vercel/static-build",
-      "config": {
-        "distDir": "dist",
-        "buildCommand": "vite build --mode production"
-      }
+      "source": "/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Credentials", "value": "true" },
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET,OPTIONS,PATCH,DELETE,POST,PUT" },
+        { "key": "Access-Control-Allow-Headers", "value": "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, authorization, x-client-info, apikey" }
+      ]
+    },
+    {
+      "source": "/assets/(.*)",
+      "headers": [
+        { "key": "cache-control", "value": "public, max-age=31536000, immutable" }
+      ]
     }
   ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "/index.html"
-    }
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
   ],
   "env": {
     "VITE_SUPABASE_URL": "https://ysljpqtpbpugekhrdocq.supabase.co",
     "VITE_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlzbGpwcXRwYnB1Z2VraHJkb2NxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MTM2NTQ1MTMsImV4cCI6MjAyOTIzMDUxM30.7WYpS0R0BL03xMbIQcbvz5uBrAGXcZJPlY3K3UcYXD8",
     "VITE_PUBLIC_URL": "https://trollhairdontcare.vercel.app",
     "VITE_ENV": "production",
-    "VITE_USE_MOCK_DATA": "true"
+    "VITE_USE_MOCK_DATA": "false"
   }
 }
