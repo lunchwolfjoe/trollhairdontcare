@@ -2,8 +2,6 @@ import React from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import { ThemeProvider, CssBaseline, Box, Typography, Button } from "@mui/material";
 import { theme } from "./theme";
-import { AuthProvider } from "./contexts/AuthContext";
-import { useAuth } from "./hooks/useAuth";
 import { VolunteerLayout } from "./components/VolunteerLayout";
 import { CoordinatorLayout } from "./components/CoordinatorLayout";
 import { AdminLayout } from "./components/AdminLayout";
@@ -34,24 +32,58 @@ import { FestivalManagement } from "./features/coordinator/FestivalManagement";
 import { FestivalDashboard } from "./features/coordinator/FestivalDashboard";
 import { WelcomeHomePortal } from "./features/coordinator/WelcomeHomePortal";
 import { SupabaseConnectionTest } from "./components/SupabaseConnectionTest";
-import { ProtectedRoute } from "./components/ProtectedRoute";
-import { Login } from "./pages/Login";
 import { AccessDenied } from "./pages/AccessDenied";
 import { CreateTestUser } from "./components/DevHelpers/CreateTestUser";
 import { RoleFixer } from "./components/DevHelpers/RoleFixer";
 import { VolunteerCommunications } from "./features/volunteer/VolunteerCommunications";
+import SupabaseDebugger from "./components/SupabaseDebugger";
+
+// NEW IMPORTS - use the simplified auth system
+import { SimpleAuthProvider, useSimpleAuth } from "./contexts/SimpleAuthContext";
+import { SimpleLogin } from "./pages/SimpleLogin";
 
 // Check if we're in development mode
 const isDevelopment = import.meta.env.MODE === 'development' || window.location.hostname === 'localhost';
 
-function AppRoutes() {
-  const { activeRole, authenticated } = useAuth();
+// New simplified protected route component
+interface SimpleProtectedRouteProps {
+  children: React.ReactNode;
+  requiredRoles?: string[];
+}
+
+const SimpleProtectedRoute: React.FC<SimpleProtectedRouteProps> = ({ 
+  children, 
+  requiredRoles = [] 
+}) => {
+  const { authenticated, loading, activeRole } = useSimpleAuth();
+
+  if (loading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}>
+        <Typography>Loading...</Typography>
+      </Box>
+    );
+  }
+
+  if (!authenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (requiredRoles.length > 0 && (!activeRole || !requiredRoles.includes(activeRole))) {
+    return <Navigate to="/access-denied" replace />;
+  }
+
+  return <>{children}</>;
+};
+
+function SimpleAppRoutes() {
+  const { activeRole, authenticated } = useSimpleAuth();
 
   return (
     <>
       <Routes>
         {/* Public routes */}
-        <Route path="/login" element={<Login />} />
+        <Route path="/login" element={<SimpleLogin />} />
         <Route path="/access-denied" element={<AccessDenied />} />
         <Route path="/test-connection" element={<SupabaseConnectionTest />} />
         
@@ -86,7 +118,7 @@ function AppRoutes() {
         <Route
           path="/volunteer/*"
           element={
-            <ProtectedRoute requiredRoles={['volunteer']}>
+            <SimpleProtectedRoute requiredRoles={['volunteer']}>
               <VolunteerLayout>
                 <Routes>
                   <Route path="dashboard" element={<VolunteerDashboard />} />
@@ -101,7 +133,7 @@ function AppRoutes() {
                   <Route path="vectorized-map" element={<VectorizedMap />} />
                 </Routes>
               </VolunteerLayout>
-            </ProtectedRoute>
+            </SimpleProtectedRoute>
           }
         />
 
@@ -109,7 +141,7 @@ function AppRoutes() {
         <Route
           path="/coordinator/*"
           element={
-            <ProtectedRoute requiredRoles={['coordinator']}>
+            <SimpleProtectedRoute requiredRoles={['coordinator']}>
               <CoordinatorLayout>
                 <Routes>
                   <Route path="dashboard" element={<CoordinatorDashboard />} />
@@ -136,7 +168,7 @@ function AppRoutes() {
                   <Route path="incidents" element={<IncidentLogging />} />
                 </Routes>
               </CoordinatorLayout>
-            </ProtectedRoute>
+            </SimpleProtectedRoute>
           }
         />
 
@@ -144,7 +176,7 @@ function AppRoutes() {
         <Route
           path="/admin/*"
           element={
-            <ProtectedRoute requiredRoles={['admin']}>
+            <SimpleProtectedRoute requiredRoles={['admin']}>
               <AdminLayout>
                 <Routes>
                   <Route path="dashboard" element={<AdminDashboard />} />
@@ -154,7 +186,7 @@ function AppRoutes() {
                   <Route path="connection-test" element={<SupabaseConnectionTest />} />
                 </Routes>
               </AdminLayout>
-            </ProtectedRoute>
+            </SimpleProtectedRoute>
           }
         />
 
@@ -193,12 +225,12 @@ function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <AuthProvider>
-        <SupabaseConnectionTest />
+      <SimpleAuthProvider>
+        <SupabaseDebugger />
         <Router>
-          <AppRoutes />
+          <SimpleAppRoutes />
         </Router>
-      </AuthProvider>
+      </SimpleAuthProvider>
     </ThemeProvider>
   );
 }

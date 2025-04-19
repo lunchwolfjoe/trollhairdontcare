@@ -10,13 +10,13 @@ import {
   Tab, 
   Alert,
   CircularProgress,
-  Link
+  Link,
+  Card,
+  CardContent,
+  Grid
 } from '@mui/material';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
-import { useAuth } from '../hooks/useAuth';
-
-// Check if we're in development mode
-const isDevelopment = import.meta.env.MODE === 'development' || window.location.hostname === 'localhost';
+import { useSimpleAuth } from '../contexts/SimpleAuthContext';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -51,59 +51,60 @@ function a11yProps(index: number) {
   };
 }
 
-export const Login: React.FC = () => {
+export const SimpleLogin: React.FC = () => {
   const [tabValue, setTabValue] = useState(0);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const { signin, signup, authenticated } = useAuth();
+  const { signIn, signUp, authenticated, loading, error, mockSignIn } = useSimpleAuth();
   const navigate = useNavigate();
 
   // Redirect if already authenticated
-  React.useEffect(() => {
+  useEffect(() => {
     if (authenticated) {
-      navigate('/dashboard');
+      navigate('/');
     }
   }, [authenticated, navigate]);
 
+  // Show auth context errors
+  useEffect(() => {
+    if (error) {
+      setLocalError(error);
+    }
+  }, [error]);
+
   const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
-    setError(null);
+    setLocalError(null);
     setSuccess(null);
   };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
-    setIsSubmitting(true);
+    setLocalError(null);
 
     try {
-      await signin(email, password);
+      await signIn(email, password);
     } catch (err: any) {
-      setError(err.message || 'An error occurred during login');
-    } finally {
-      setIsSubmitting(false);
+      // Error is handled in the context and shown via the error effect
     }
   };
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
+    setLocalError(null);
     setSuccess(null);
-    setIsSubmitting(true);
 
     if (!fullName) {
-      setError('Please enter your full name');
-      setIsSubmitting(false);
+      setLocalError('Please enter your full name');
       return;
     }
 
     try {
-      await signup(email, password, { full_name: fullName });
+      await signUp(email, password, { full_name: fullName });
       
       setSuccess('Account created successfully! Check your email for confirmation (if applicable) and log in.');
       setTabValue(0);
@@ -111,12 +112,15 @@ export const Login: React.FC = () => {
       setEmail('');
       setPassword('');
       setFullName('');
-
     } catch (err: any) {
-      setError(err.message || 'An error occurred during signup');
-    } finally {
-      setIsSubmitting(false);
+      // Error is handled in the context and shown via the error effect
     }
+  };
+
+  // Bypass login with mock roles
+  const handleBypass = (role: string) => {
+    mockSignIn(role);
+    navigate('/');
   };
 
   return (
@@ -161,9 +165,9 @@ export const Login: React.FC = () => {
             </Tabs>
           </Box>
 
-          {error && (
+          {localError && (
             <Box sx={{ px: 3, pt: 3 }}>
-              <Alert severity="error">{typeof error === 'object' ? (error.message || JSON.stringify(error)) : error}</Alert>
+              <Alert severity="error">{localError}</Alert>
             </Box>
           )}
 
@@ -204,9 +208,9 @@ export const Login: React.FC = () => {
                 fullWidth
                 variant="contained"
                 sx={{ mt: 3, mb: 2 }}
-                disabled={isSubmitting}
+                disabled={loading}
               >
-                {isSubmitting ? <CircularProgress size={24} /> : 'Sign In'}
+                {loading ? <CircularProgress size={24} /> : 'Sign In'}
               </Button>
             </Box>
           </TabPanel>
@@ -252,35 +256,72 @@ export const Login: React.FC = () => {
                 fullWidth
                 variant="contained"
                 sx={{ mt: 3, mb: 2 }}
-                disabled={isSubmitting}
+                disabled={loading}
               >
-                {isSubmitting ? <CircularProgress size={24} /> : 'Create Account'}
+                {loading ? <CircularProgress size={24} /> : 'Create Account'}
               </Button>
             </Box>
           </TabPanel>
-
-          {/* Development Tools Link */}
-          {isDevelopment && (
-            <Box sx={{ p: 2, textAlign: 'center', borderTop: 1, borderColor: 'divider' }}>
-              <Typography variant="caption" color="text.secondary">
-                Development Mode: 
-                <Link component={RouterLink} to="/dev-tools" sx={{ ml: 1 }}>
-                  Create Test Users
-                </Link>
-              </Typography>
-            </Box>
-          )}
         </Paper>
 
-        <Box sx={{ mt: 2, textAlign: 'center' }}>
-          <Typography variant="body2" color="text.secondary">
-            Having trouble signing in? 
-            <RouterLink to="/test-connection" style={{ marginLeft: '8px' }}>
-              Test Connection
-            </RouterLink>
-          </Typography>
-        </Box>
+        {/* Quick access options for testing */}
+        <Typography variant="h6" sx={{ mt: 4, mb: 2 }}>
+          Quick Access for Testing
+        </Typography>
+        
+        <Grid container spacing={2}>
+          <Grid item xs={4}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  Volunteer
+                </Typography>
+                <Button 
+                  variant="outlined" 
+                  fullWidth
+                  onClick={() => handleBypass('volunteer')}
+                >
+                  Access
+                </Button>
+              </CardContent>
+            </Card>
+          </Grid>
+          
+          <Grid item xs={4}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  Coordinator
+                </Typography>
+                <Button 
+                  variant="outlined" 
+                  fullWidth
+                  onClick={() => handleBypass('coordinator')}
+                >
+                  Access
+                </Button>
+              </CardContent>
+            </Card>
+          </Grid>
+          
+          <Grid item xs={4}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  Admin
+                </Typography>
+                <Button 
+                  variant="outlined" 
+                  fullWidth
+                  onClick={() => handleBypass('admin')}
+                >
+                  Access
+                </Button>
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
       </Box>
     </Container>
   );
-} 
+}; 

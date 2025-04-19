@@ -1,266 +1,115 @@
+import { ApiResponse, handleError } from './api';
+import { Database } from '../types/supabase';
 import { supabase } from '../supabaseClient';
-import { BaseService } from './api';
 
-export interface Guest {
-  id: string;
-  full_name: string;
-  email?: string;
-  phone?: string;
-  rv_spot_number?: string;
-  ticket_type: 'Full Festival' | 'Weekend' | 'Day Pass' | 'VIP' | 'Artist';
-  tow_vehicle_permit: boolean;
-  sleeper_vehicle_permit: boolean;
-  credentials_issued: boolean;
-  created_at: string;
-  updated_at?: string;
-  festival_id: string;
-}
+type Guest = Database['public']['Tables']['guests']['Row'];
+type GuestInsert = Database['public']['Tables']['guests']['Insert'];
+type GuestUpdate = Database['public']['Tables']['guests']['Update'];
 
-export interface GuestFilters {
-  festival_id?: string;
-  ticket_type?: string;
-  credentials_issued?: boolean;
-  search?: string;
-}
+export class GuestService {
+  private readonly tableName = 'guests';
 
-export interface GuestStatistics {
-  totalGuests: number;
-  checkedInGuests: number;
-  pendingGuests: number;
-  checkinPercentage: number;
-}
-
-class GuestService extends BaseService {
-  /**
-   * Get all guests for a festival with optional filtering
-   */
-  async getGuests(filters: GuestFilters, pagination?: { page: number; pageSize: number }) {
+  async getGuests(festivalId: string): Promise<ApiResponse<Guest[]>> {
     try {
-      let query = supabase
-        .from('guests')
-        .select('*');
-      
-      // Apply filters
-      if (filters.festival_id) {
-        query = query.eq('festival_id', filters.festival_id);
-      }
-      
-      if (filters.ticket_type) {
-        query = query.eq('ticket_type', filters.ticket_type);
-      }
-      
-      if (filters.credentials_issued !== undefined) {
-        query = query.eq('credentials_issued', filters.credentials_issued);
-      }
-      
-      if (filters.search) {
-        query = query.ilike('full_name', `%${filters.search}%`);
-      }
-      
-      // Apply pagination if specified
-      if (pagination) {
-        const { page, pageSize } = pagination;
-        const from = (page - 1) * pageSize;
-        const to = from + pageSize - 1;
-        query = query.range(from, to);
-      }
-      
-      // Execute query
-      const { data, error } = await query.order('full_name');
-      
+      const { data, error } = await supabase.from(this.tableName)
+        .select('*')
+        .eq('festival_id', festivalId)
+        .order('created_at', { ascending: false });
+
       if (error) {
-        throw this.handleError(error);
+        return { data: null, error: handleError(error) };
       }
-      
-      return { data, error: null };
+      return { data: data as Guest[], error: null };
     } catch (error) {
-      return { data: null, error };
+      return { data: null, error: handleError(error) };
     }
   }
-  
-  /**
-   * Get a single guest by ID
-   */
-  async getGuestById(id: string) {
+
+  async getGuest(id: string): Promise<ApiResponse<Guest>> {
     try {
-      const { data, error } = await supabase
-        .from('guests')
+      const { data, error } = await supabase.from(this.tableName)
         .select('*')
         .eq('id', id)
         .single();
-      
+
       if (error) {
-        throw this.handleError(error);
+        return { data: null, error: handleError(error) };
       }
-      
-      return { data, error: null };
+      return { data: data as Guest | null, error: null };
     } catch (error) {
-      return { data: null, error };
+      return { data: null, error: handleError(error) };
     }
   }
-  
-  /**
-   * Create a new guest
-   */
-  async createGuest(guest: Omit<Guest, 'id' | 'created_at' | 'updated_at'>) {
+
+  async createGuest(guestData: GuestInsert): Promise<ApiResponse<Guest>> {
     try {
-      const { data, error } = await supabase
-        .from('guests')
-        .insert(guest)
+      const { data, error } = await supabase.from(this.tableName)
+        .insert(guestData)
         .select()
         .single();
-      
-      if (error) {
-        throw this.handleError(error);
-      }
-      
-      return { data, error: null };
+      if (error) throw error;
+      return { data: data as Guest | null, error: null };
     } catch (error) {
-      return { data: null, error };
+      return { data: null, error: handleError(error) };
     }
   }
-  
-  /**
-   * Update a guest record
-   */
-  async updateGuest(id: string, updates: Partial<Omit<Guest, 'id' | 'created_at' | 'updated_at'>>) {
+
+  async updateGuest(id: string, guestData: GuestUpdate): Promise<ApiResponse<Guest>> {
     try {
-      const { data, error } = await supabase
-        .from('guests')
-        .update(updates)
+      const { data, error } = await supabase.from(this.tableName)
+        .update(guestData)
         .eq('id', id)
         .select()
         .single();
-      
-      if (error) {
-        throw this.handleError(error);
-      }
-      
-      return { data, error: null };
+       if (error) throw error;
+      return { data: data as Guest | null, error: null };
     } catch (error) {
-      return { data: null, error };
+      return { data: null, error: handleError(error) };
     }
   }
   
-  /**
-   * Check in a guest (mark credentials as issued)
-   */
-  async checkInGuest(id: string) {
+  async deleteGuest(id: string): Promise<ApiResponse<null>> {
+     try {
+        const { data, error } = await supabase.from(this.tableName).delete().eq('id', id);
+        if (error) {
+           return { data: null, error: handleError(error) };
+        }
+        return { data: null, error: null };
+     } catch (error) {
+        return { data: null, error: handleError(error) };
+     }
+  }
+
+  async checkInGuest(id: string): Promise<ApiResponse<Guest>> {
     try {
-      const { data, error } = await supabase
-        .from('guests')
-        .update({ credentials_issued: true })
+      const updateData = {
+          checked_in: true,
+          // checked_in_at: new Date().toISOString(), // Ensure this field exists
+        };
+      const { data, error } = await supabase.from(this.tableName)
+        .update(updateData)
         .eq('id', id)
         .select()
         .single();
-      
-      if (error) {
-        throw this.handleError(error);
-      }
-      
-      return { data, error: null };
+      if (error) throw error;
+      return { data: data as Guest | null, error: null };
     } catch (error) {
-      return { data: null, error };
+      return { data: null, error: handleError(error) };
     }
   }
-  
-  /**
-   * Update guest vehicle permits
-   */
-  async updateGuestPermits(id: string, towVehiclePermit: boolean, sleeperVehiclePermit: boolean) {
+
+  async getGuestStats(festivalId: string): Promise<ApiResponse<{ total: number; checkedIn: number }>> {
     try {
-      const { data, error } = await supabase
-        .from('guests')
-        .update({
-          tow_vehicle_permit: towVehiclePermit,
-          sleeper_vehicle_permit: sleeperVehiclePermit
-        })
-        .eq('id', id)
-        .select()
-        .single();
-      
-      if (error) {
-        throw this.handleError(error);
-      }
-      
-      return { data, error: null };
+      const [totalResponse, checkedInResponse] = await Promise.all([
+        supabase.from(this.tableName).select('id', { count: 'exact' }).eq('festival_id', festivalId),
+        supabase.from(this.tableName).select('id', { count: 'exact' }).eq('festival_id', festivalId).eq('checked_in', true),
+      ]);
+      // Handle potential errors from promises if needed
+      const total = totalResponse.count || 0;
+      const checkedIn = checkedInResponse.count || 0;
+      return { data: { total, checkedIn }, error: null };
     } catch (error) {
-      return { data: null, error };
-    }
-  }
-  
-  /**
-   * Count guests matching certain filters
-   */
-  async countGuests(filters: GuestFilters) {
-    try {
-      let query = supabase
-        .from('guests')
-        .select('id', { count: 'exact' });
-      
-      // Apply filters
-      if (filters.festival_id) {
-        query = query.eq('festival_id', filters.festival_id);
-      }
-      
-      if (filters.ticket_type) {
-        query = query.eq('ticket_type', filters.ticket_type);
-      }
-      
-      if (filters.credentials_issued !== undefined) {
-        query = query.eq('credentials_issued', filters.credentials_issued);
-      }
-      
-      if (filters.search) {
-        query = query.ilike('full_name', `%${filters.search}%`);
-      }
-      
-      // Execute query
-      const { count, error } = await query;
-      
-      if (error) {
-        throw this.handleError(error);
-      }
-      
-      return { data: count || 0, error: null };
-    } catch (error) {
-      return { data: 0, error };
-    }
-  }
-  
-  /**
-   * Get check-in statistics for a festival
-   */
-  async getCheckInStatistics(festivalId: string): Promise<{ data: GuestStatistics | null, error: Error | null }> {
-    try {
-      // Get total guest count
-      const { data: totalCount, error: totalError } = await this.countGuests({ festival_id: festivalId });
-      
-      if (totalError) {
-        throw this.handleError(totalError);
-      }
-      
-      // Get checked-in guest count
-      const { data: checkedInCount, error: checkedInError } = await this.countGuests({
-        festival_id: festivalId,
-        credentials_issued: true
-      });
-      
-      if (checkedInError) {
-        throw this.handleError(checkedInError);
-      }
-      
-      // Calculate statistics
-      const stats: GuestStatistics = {
-        totalGuests: totalCount,
-        checkedInGuests: checkedInCount,
-        pendingGuests: totalCount - checkedInCount,
-        checkinPercentage: totalCount > 0 ? (checkedInCount / totalCount) * 100 : 0
-      };
-      
-      return { data: stats, error: null };
-    } catch (error) {
-      return { data: null, error };
+      return { data: null, error: handleError(error) };
     }
   }
 }

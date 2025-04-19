@@ -25,6 +25,13 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  TableContainer,
+  Table,
+  TableHead,
+  TableRow,
+  TableCell,
+  TableBody,
+  IconButton,
 } from '@mui/material';
 import {
   Search as SearchIcon,
@@ -35,27 +42,13 @@ import {
   LocalParking as ParkingIcon,
   Home as RVIcon,
   Announcement as AnnouncementIcon,
+  CheckCircle as CheckCircleIcon,
 } from '@mui/icons-material';
-import { festivalService, guestService } from '../../lib/services';
-import { Festival } from '../../lib/types/models';
-import { Guest } from '../../lib/services/guestService';
+import { festivalService } from '../../lib/services';
+import { Festival, Guest } from '../../lib/types/models';
+import { guestService } from '../../lib/services/guestService';
 
 // Types for the guest check-in functionality
-interface Guest {
-  id: string;
-  full_name: string;
-  email: string;
-  phone?: string;
-  rv_spot_number?: string;
-  ticket_type: 'Full Festival' | 'Weekend' | 'Day Pass' | 'VIP' | 'Artist';
-  tow_vehicle_permit: boolean;
-  sleeper_vehicle_permit: boolean;
-  credentials_issued: boolean;
-  created_at: string;
-  updated_at?: string;
-  festival_id: string;
-}
-
 interface GuestSearchResult {
   guests: Guest[];
   total: number;
@@ -89,6 +82,10 @@ const WelcomeHomePortal: React.FC = () => {
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
   const [snackbarSeverity, setSnackbarSeverity] = useState<'success' | 'error' | 'info'>('success');
+  
+  // State for permit checkboxes (assuming these are boolean fields on Guest)
+  const [towPermit, setTowPermit] = useState(false);
+  const [sleeperPermit, setSleeperPermit] = useState(false);
   
   // Fetch festivals on component mount
   useEffect(() => {
@@ -150,31 +147,22 @@ const WelcomeHomePortal: React.FC = () => {
   
   // Handle search submission
   const handleSearch = async () => {
-    if (!searchTerm.trim() || !currentFestival) return;
-    
+    if (!currentFestival || !searchTerm.trim()) return;
     setLoading(true);
     setError(null);
-    
     try {
-      const { data, error } = await guestService.getGuests({
-        festival_id: currentFestival.id,
-        search: searchTerm
-      });
+      const { data, error: searchError } = await guestService.getGuests(currentFestival.id, searchTerm);
       
-      if (error) {
-        throw error;
-      }
+      if (searchError) throw searchError;
       
-      setSearchResults(data || []);
+      setSearchResults((data as Guest[]) || []);
       
       if (!data || data.length === 0) {
-        setSnackbarMessage('No guests found matching your search criteria');
-        setSnackbarSeverity('info');
-        setSnackbarOpen(true);
+        setError('No guests found matching your search.');
       }
     } catch (err: any) {
-      console.error('Error searching guests:', err);
-      setError(err.message);
+      setError(err.message || 'Failed to search guests');
+      console.error(err);
     } finally {
       setLoading(false);
     }
@@ -184,6 +172,9 @@ const WelcomeHomePortal: React.FC = () => {
   const handleSelectGuest = (guest: Guest) => {
     setSelectedGuest(guest);
     setCredentialsIssued(guest.credentials_issued);
+    // Initialize checkboxes based on selected guest
+    setTowPermit(guest.tow_vehicle_permit || false);
+    setSleeperPermit(guest.sleeper_vehicle_permit || false);
   };
   
   // Open check-in dialog
@@ -196,30 +187,20 @@ const WelcomeHomePortal: React.FC = () => {
   // Handle check-in process
   const handleCheckIn = async () => {
     if (!selectedGuest) return;
-    
     setLoading(true);
     setError(null);
-    
     try {
-      const { data, error } = await guestService.checkInGuest(selectedGuest.id);
-      
-      if (error) {
-        throw error;
-      }
-      
-      // Update local state
-      setSelectedGuest(data);
-      
+      const { data, error: checkinError } = await guestService.checkInGuest(selectedGuest.id);
+      if (checkinError) throw checkinError;
+      // Update local state after check-in
+      setSelectedGuest(data as Guest);
+      setSearchResults(prev => prev.map(g => g.id === data?.id ? (data as Guest) : g));
       setCheckInDialogOpen(false);
       setSnackbarMessage('Guest check-in completed successfully!');
       setSnackbarSeverity('success');
       setSnackbarOpen(true);
-      
-      // Refresh search results to show updated status
-      handleSearch();
     } catch (err: any) {
-      console.error('Error updating guest:', err);
-      setError(err.message);
+      setError(err.message || 'Failed to check in guest');
     } finally {
       setLoading(false);
     }
@@ -275,6 +256,39 @@ const WelcomeHomePortal: React.FC = () => {
   // Function to navigate to announcements
   const goToAnnouncements = () => {
     navigate('/volunteer/communications');
+  };
+  
+  const handleCloseDialog = () => {
+    setCheckInDialogOpen(false);
+    setSelectedGuest(null);
+  };
+  
+  const handleSavePermits = async () => {
+    if (!selectedGuest) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const updateData: Partial<Guest> = {
+        tow_vehicle_permit: towPermit,
+        sleeper_vehicle_permit: sleeperPermit,
+        credentials_issued: credentialsIssued
+      };
+      const { data, error: updateError } = await guestService.updateGuest(selectedGuest.id, updateData);
+      
+      if (updateError) throw updateError;
+      
+      // Update local state
+      setSelectedGuest(data as Guest);
+      setSearchResults(prev => prev.map(g => g.id === data?.id ? (data as Guest) : g));
+      setCheckInDialogOpen(false);
+      setSnackbarMessage('Guest permits updated successfully!');
+      setSnackbarSeverity('success');
+      setSnackbarOpen(true);
+    } catch (err: any) {
+      setError(err.message || 'Failed to update permits');
+    } finally {
+      setLoading(false);
+    }
   };
   
   return (
@@ -503,7 +517,7 @@ const WelcomeHomePortal: React.FC = () => {
       </Paper>
       
       {/* Check-in Dialog */}
-      <Dialog open={checkInDialogOpen} onClose={() => setCheckInDialogOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog open={checkInDialogOpen} onClose={handleCloseDialog} maxWidth="sm" fullWidth>
         <DialogTitle>Check-in Guest</DialogTitle>
         <DialogContent>
           {selectedGuest && (
@@ -520,7 +534,7 @@ const WelcomeHomePortal: React.FC = () => {
                 control={
                   <Checkbox
                     checked={credentialsIssued}
-                    onChange={() => setCredentialsIssued(!credentialsIssued)}
+                    onChange={(e) => setCredentialsIssued(e.target.checked)}
                   />
                 }
                 label="Wristbands and credentials have been issued"
@@ -543,14 +557,22 @@ const WelcomeHomePortal: React.FC = () => {
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setCheckInDialogOpen(false)}>Cancel</Button>
+          <Button onClick={handleCloseDialog}>Cancel</Button>
           <Button
-            onClick={handleCheckIn}
+            onClick={handleSavePermits}
             color="primary"
             variant="contained"
-            disabled={!credentialsIssued}
+            disabled={loading}
           >
-            Complete Check-in
+            {loading ? <CircularProgress size={24} /> : 'Save Permits'}
+          </Button>
+          <Button
+            onClick={handleCheckIn}
+            color="success"
+            variant="contained"
+            disabled={loading || selectedGuest?.credentials_issued}
+          >
+            {loading ? <CircularProgress size={24} /> : (selectedGuest?.credentials_issued ? 'Checked In' : 'Check In')}
           </Button>
         </DialogActions>
       </Dialog>
@@ -569,9 +591,9 @@ const WelcomeHomePortal: React.FC = () => {
                 control={
                   <Checkbox
                     checked={additionalPermits.towVehicle}
-                    onChange={() => setAdditionalPermits({
+                    onChange={(e) => setAdditionalPermits({
                       ...additionalPermits,
-                      towVehicle: !additionalPermits.towVehicle
+                      towVehicle: e.target.checked
                     })}
                   />
                 }
@@ -582,9 +604,9 @@ const WelcomeHomePortal: React.FC = () => {
                 control={
                   <Checkbox
                     checked={additionalPermits.sleeperVehicle}
-                    onChange={() => setAdditionalPermits({
+                    onChange={(e) => setAdditionalPermits({
                       ...additionalPermits,
-                      sleeperVehicle: !additionalPermits.sleeperVehicle
+                      sleeperVehicle: e.target.checked
                     })}
                   />
                 }

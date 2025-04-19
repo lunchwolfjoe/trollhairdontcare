@@ -1,10 +1,11 @@
 import { supabase } from '../supabaseClient';
-import { PostgrestQueryBuilder } from '@supabase/postgrest-js';
+import { PostgrestResponse, PostgrestSingleResponse, PostgrestFilterBuilder, PostgrestBuilder, PostgrestError } from '@supabase/postgrest-js';
+import { Database } from '../types/supabase';
 
 /**
  * Standard error response format
  */
-export interface ApiError {
+export interface ApiError extends Error {
   status: number;
   message: string;
   details?: any;
@@ -32,146 +33,66 @@ export function handleError(error: any): ApiError {
     });
     
     // Common Postgres error codes
+    let status = 400; // Default bad request
+    let message = error.message || 'Database error occurred';
+    let details = error.details;
+
     switch (error.code) {
       case '22P02': // invalid_text_representation
-        return {
-          status: 400,
-          message: 'Invalid data format: ' + (error.message || 'A field has an incorrect format'),
-          details: error.details || 'Check that all IDs are valid UUIDs and other fields have correct formats'
-        };
+        message = 'Invalid data format: ' + message;
+        details = details || 'Check that all IDs are valid UUIDs and other fields have correct formats';
+        break;
       case '23505': // unique_violation
-        return {
-          status: 409,
-          message: 'Duplicate entry: ' + (error.message || 'A unique constraint was violated'),
-          details: error.details
-        };
+        status = 409;
+        message = 'Duplicate entry: ' + message;
+        break;
       case '23503': // foreign_key_violation
-        return {
-          status: 400,
-          message: 'Referenced record not found: ' + (error.message || 'A referenced record does not exist'),
-          details: error.details
-        };
+        message = 'Referenced record not found: ' + message;
+        break;
       case '42501': // insufficient_privilege
-        return {
-          status: 403,
-          message: 'Permission denied: ' + (error.message || 'You do not have permission to perform this action'),
-          details: error.details
-        };
+        status = 403;
+        message = 'Permission denied: ' + message;
+        break;
     }
+    
+    return {
+      name: 'ApiError', // Add name explicitly
+      status,
+      message,
+      details
+    };
   }
   
   console.error('API Error:', error);
   
   return {
-    status: error?.status || 500,
+    name: 'ApiError', // Add name explicitly
+    status: error?.status || error?.response?.status || 500,
     message: error?.message || error?.error?.message || 'Unknown error occurred',
-    details: error?.details || error?.error || error
+    details: error?.details || error?.error || error?.response?.data || error
   };
 }
 
 /**
- * Base service class that all other services will extend
+ * Reusable pagination parameters
  */
-export class BaseService {
-  /**
-   * The Supabase table name this service operates on
-   */
-  protected tableName: string;
+export interface PaginationParams {
+  page?: number;
+  pageSize?: number;
+}
 
-  constructor(tableName: string) {
-    this.tableName = tableName;
-  }
+/**
+ * Apply pagination to a query
+ */
+export function applyPagination<T extends Record<string, any>>(
+  query: PostgrestFilterBuilder<Database['public'], any, T[]>,
+  params: PaginationParams
+): PostgrestFilterBuilder<Database['public'], any, T[]> {
+  const { page = 1, pageSize = 10 } = params;
+  const start = (page - 1) * pageSize;
+  const end = start + pageSize - 1;
 
-  /**
-   * Create a query builder for the table
-   */
-  protected query<T = any>(): any {
-    // Ensure supabase client is ready and imported properly
-    if (!supabase) {
-      console.error('Supabase client is undefined - check if it was imported correctly');
-      throw new Error('Supabase client not defined');
-    }
-    
-    if (typeof supabase.from !== 'function') {
-      console.error('Supabase client missing "from" method - looks like initialization failed');
-      throw new Error('Supabase client not properly initialized');
-    }
-
-    // Create a fresh query builder each time
-    try {
-      console.log(`Creating query builder for table: ${this.tableName}`);
-      const queryBuilder = supabase.from(this.tableName);
-      
-      if (!queryBuilder) {
-        console.error(`Failed to get query builder for table: ${this.tableName}`);
-        throw new Error(`Failed to create query builder for table: ${this.tableName}`);
-      }
-      
-      // Log available methods on the query builder for debugging
-      const methods = Object.getOwnPropertyNames(Object.getPrototypeOf(queryBuilder))
-        .filter(name => typeof (queryBuilder as any)[name] === 'function' && name !== 'constructor')
-        .join(', ');
-      console.debug(`Query builder methods: ${methods}`);
-      
-      // Let's use a much simpler approach - just return the query builder directly
-      // The festivalService.ts has been updated to handle the different API
-      return queryBuilder;
-    } catch (error) {
-      console.error(`Error creating query builder for table ${this.tableName}:`, error);
-      throw new Error(`Failed to create Supabase query: ${error}`);
-    }
-  }
-
-  /**
-   * Check if the table exists in the database
-   */
-  protected async checkTableExists(): Promise<boolean> {
-    try {
-      const { data, error } = await supabase
-        .from('information_schema.tables')
-        .select('table_name')
-        .eq('table_schema', 'public')
-        .eq('table_name', this.tableName);
-      
-      if (error) {
-        console.error(`Error checking if table ${this.tableName} exists:`, error);
-        return false;
-      }
-      
-      return Array.isArray(data) && data.length > 0;
-    } catch (error) {
-      console.error(`Exception checking if table ${this.tableName} exists:`, error);
-      return false;
-    }
-  }
-
-  /**
-   * Execute a query with error handling
-   */
-  protected async executeQuery<T>(
-    queryPromise: Promise<{ data: T | null; error: any }>
-  ): Promise<ApiResponse<T>> {
-    try {
-      const { data, error } = await queryPromise;
-      
-      if (error) {
-        return {
-          data: null,
-          error: handleError(error)
-        };
-      }
-      
-      return {
-        data,
-        error: null
-      };
-    } catch (err) {
-      return {
-        data: null,
-        error: handleError(err)
-      };
-    }
-  }
+  return query.range(start, end);
 }
 
 /**
@@ -248,23 +169,4 @@ export async function hasRole(roleName: string): Promise<boolean> {
     console.error('Error checking role:', error);
     return false;
   }
-}
-
-/**
- * Reusable pagination parameters
- */
-export interface PaginationParams {
-  page?: number;
-  pageSize?: number;
-}
-
-/**
- * Apply pagination to a query
- */
-export function applyPagination<T>(query: PostgrestQueryBuilder<T>, params: PaginationParams): PostgrestQueryBuilder<T> {
-  const { page = 1, pageSize = 10 } = params;
-  const start = (page - 1) * pageSize;
-  const end = start + pageSize - 1;
-  
-  return query.range(start, end);
 } 

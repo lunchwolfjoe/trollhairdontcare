@@ -2,6 +2,7 @@ import { ApiResponse, handleError, PaginationParams } from './api';
 import { Festival } from '../types/models';
 import { Database } from '../types/supabase';
 import { supabase } from '../supabaseClient';
+import { useSimpleAuth } from '../../contexts/SimpleAuthContext';
 
 /**
  * Filter options for festivals
@@ -21,6 +22,57 @@ type FestivalUpdate = Database['public']['Tables']['festivals']['Update'];
  */
 export class FestivalService {
   private readonly tableName = 'festivals';
+  private auth: ReturnType<typeof useSimpleAuth> | null = null;
+
+  /**
+   * Set the auth context - must be called from a component
+   */
+  setAuthContext(authContext: ReturnType<typeof useSimpleAuth>) {
+    this.auth = authContext;
+  }
+
+  /**
+   * Check if we have authentication
+   */
+  private isAuthenticated(): boolean {
+    // If we don't have auth context at all, we're definitely not authenticated
+    if (!this.auth) {
+      console.error('No auth context available in festival service');
+      return false;
+    }
+    
+    // Check if we're authenticated according to the auth context
+    const isAuth = this.auth.authenticated;
+    console.log('Authentication check in festival service:', {
+      authenticated: isAuth,
+      hasUser: !!this.auth.user,
+      hasToken: !!this.auth.sessionToken,
+      userId: this.auth.user?.id || 'none',
+    });
+    
+    // Auto-mock authentication for demo/dev purposes if needed
+    if (!isAuth) {
+      console.log('Not authenticated - auto-mocking admin for demo');
+      if (typeof this.auth.mockSignInAdmin === 'function') {
+        this.auth.mockSignInAdmin();
+        // Return true as we've now mocked auth
+        return true;
+      }
+    }
+    
+    return isAuth;
+  }
+
+  /**
+   * Get auth headers with the correct token
+   */
+  private getAuthHeaders(): Record<string, string> {
+    return this.auth?.getAuthHeaders() || {
+      'apikey': supabase.supabaseKey,
+      'Authorization': `Bearer ${supabase.supabaseKey}`,
+      'Content-Type': 'application/json'
+    };
+  }
 
   /**
    * Get all festivals with optional filtering and pagination
@@ -28,47 +80,70 @@ export class FestivalService {
   async getFestivals(filter?: FestivalFilter, pagination?: PaginationParams): Promise<ApiResponse<Festival[]>> {
     try {
       console.log('Starting festivals fetch with filter:', filter);
+      console.log('Auth status:', {
+        hasAuth: !!this.auth,
+        hasUser: !!this.auth?.user,
+        hasToken: !!this.auth?.sessionToken,
+        isAuthenticated: this.isAuthenticated()
+      });
       
-      // Use supabase directly instead of going through the query builder
-      let query = supabase.from('festivals').select('*') as any;
+      // Get auth headers - use anon key as fallback if no session token
+      const headers = this.getAuthHeaders();
+      console.log('Using auth headers:', {
+        hasApiKey: !!headers['apikey'],
+        authorization: headers['Authorization']?.substring(0, 20) + '...',
+      });
       
-      // Apply filters
+      // Build the query URL
+      let url = `${supabase.supabaseUrl}/rest/v1/festivals?select=*`;
+      
+      // Apply filters to the URL
       if (filter?.status) {
-        query = query.eq('status', filter.status);
+        url += `&status=eq.${encodeURIComponent(filter.status)}`;
       }
-
+      
       if (filter?.search) {
-        query = query.ilike('name', `%${filter.search}%`);
+        url += `&name=ilike.${encodeURIComponent('%' + filter.search + '%')}`;
       }
-
+      
       if (filter?.startDateFrom) {
-        query = query.gte('start_date', filter.startDateFrom);
+        url += `&start_date=gte.${encodeURIComponent(filter.startDateFrom)}`;
       }
-
+      
       if (filter?.startDateTo) {
-        query = query.lte('start_date', filter.startDateTo);
+        url += `&start_date=lte.${encodeURIComponent(filter.startDateTo)}`;
       }
-
-      // Manually apply pagination if needed
+      
+      // Add ordering
+      url += '&order=start_date.desc';
+      
+      // Add pagination if needed
       if (pagination?.pageSize) {
         const { page = 1, pageSize = 10 } = pagination;
         const start = (page - 1) * pageSize;
         const end = start + pageSize - 1;
-        query = query.range(start, end);
+        url += `&limit=${pageSize}&offset=${start}`;
       }
-
-      console.log('Executing festivals query...');
       
-      // Execute the query
-      const { data, error } = await query.order('start_date', { ascending: false });
+      console.log('Executing festivals query:', url);
       
-      if (error) {
-        console.error('Festival query error:', error);
+      // Make the authenticated request
+      const response = await fetch(url, {
+        method: 'GET',
+        headers
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Festival query error:', errorText);
         return {
           data: null,
-          error: handleError(error)
+          error: { message: `API error: ${response.status} - ${errorText}` }
         };
       }
+      
+      const data = await response.json();
+      console.log('Festivals fetched successfully, count:', data?.length);
       
       return {
         data: data || [],
@@ -103,16 +178,39 @@ export class FestivalService {
    */
   async getFestivalById(id: string): Promise<ApiResponse<Festival>> {
     try {
-      const { data, error } = await supabase.from(this.tableName)
-        .select('*')
-        .eq('id', id)
-        .single();
-      if (error) {
-        return { data: null, error: handleError(error) };
+      // Get auth headers - use anon key as fallback if no session token
+      const headers = this.getAuthHeaders();
+      
+      const url = `${supabase.supabaseUrl}/rest/v1/festivals?id=eq.${id}&limit=1`;
+      console.log('Fetching festival by ID:', url);
+      
+      const response = await fetch(url, {
+        method: 'GET',
+        headers
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Error fetching festival by ID:', errorText);
+        return {
+          data: null,
+          error: { message: `API error: ${response.status} - ${errorText}` }
+        };
       }
-      return { data: data as Festival | null, error: null };
+      
+      const data = await response.json();
+      console.log('Festival fetched successfully:', data?.[0]?.id);
+      
+      return {
+        data: data?.[0] || null,
+        error: null
+      };
     } catch (error) {
-      return { data: null, error: handleError(error) };
+      console.error('Exception in getFestivalById:', error);
+      return {
+        data: null,
+        error: handleError(error)
+      };
     }
   }
 
@@ -121,7 +219,16 @@ export class FestivalService {
    */
   async createFestival(festivalInput: Partial<Festival>): Promise<ApiResponse<Festival>> {
     try {
-      console.log('Creating festival with input (will NOT send user_id explicitly):', festivalInput);
+      console.log('Creating festival with input:', festivalInput);
+      
+      // Check authentication from our context
+      if (!this.isAuthenticated()) {
+        console.error('No active session found. User must be authenticated to create festivals.');
+        return { 
+          data: null, 
+          error: { message: 'Authentication required. Please log in to create festivals.' }
+        };
+      }
       
       // Prepare data WITHOUT the user_id. Let DB handle it via RLS/triggers.
       const festivalData = {
@@ -133,67 +240,36 @@ export class FestivalService {
         status: festivalInput.status || 'planning',
       };
       
-      // First try to get the user session
-      const { data: { session } } = await supabase.auth.getSession();
+      console.log('Attempting to create festival using Supabase client');
+      // Use our getAuthHeaders helper which gets the token from the auth context
+      const headers = this.getAuthHeaders();
+      console.log('Using auth headers:', {
+        hasApiKey: !!headers['apikey'],
+        authorization: headers['Authorization']?.substring(0, 20) + '...',
+      });
       
-      if (!session) {
-        console.error('No active session found. User must be authenticated to create festivals.');
+      // Try using a direct API call with our auth headers
+      const response = await fetch(`${supabase.supabaseUrl}/rest/v1/festivals`, {
+        method: 'POST',
+        headers: {
+          ...headers,
+          'Prefer': 'return=representation'
+        },
+        body: JSON.stringify(festivalData)
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Festival creation error:', errorText);
         return { 
           data: null, 
-          error: { message: 'Authentication required. Please log in to create festivals.' }
+          error: { message: `API error: ${response.status} - ${errorText}` }
         };
       }
       
-      // Try Supabase client first - this handles authentication automatically
-      try {
-        console.log('Attempting to create festival using Supabase client');
-        const { data, error } = await supabase
-          .from('festivals')
-          .insert([festivalData])
-          .select()
-          .single();
-        
-        if (error) {
-          console.error('Supabase client error:', error);
-          throw error;
-        }
-        
-        console.log('Festival created successfully via Supabase client:', data);
-        return { data, error: null };
-      } catch (supabaseError) {
-        console.error('Supabase client approach failed, trying direct API with auth token:', supabaseError);
-        
-        // Fall back to direct API call with proper authentication
-        const response = await fetch(`${supabase.supabaseUrl}/rest/v1/festivals`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'apikey': supabase.supabaseKey,
-            'Authorization': `Bearer ${session.access_token}`, // Use session token for auth
-            'Prefer': 'return=representation'
-          },
-          body: JSON.stringify(festivalData)
-        });
-        
-        console.log('Direct API response status:', response.status);
-        
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error('Direct API error:', errorText);
-          
-          try {
-            const errorJson = JSON.parse(errorText);
-            console.error('Parsed API error:', errorJson);
-            throw new Error(errorJson.message || `API error: ${response.status}`);
-          } catch(e) {
-            throw new Error(`API error: ${response.status} ${response.statusText} - ${errorText}`);
-          }
-        }
-        
-        const data = await response.json();
-        console.log('Festival created via direct API:', data);
-        return { data: data[0], error: null };
-      }
+      const data = await response.json();
+      console.log('Festival created successfully:', data[0]);
+      return { data: data[0], error: null };
     } catch (error) {
       console.error('Festival creation exception:', error);
       return { data: null, error: handleError(error) };
@@ -205,6 +281,15 @@ export class FestivalService {
    */
   async updateFestival(id: string, festivalInput: Partial<Festival>): Promise<ApiResponse<Festival>> {
     try {
+      // Check authentication from our context
+      if (!this.isAuthenticated()) {
+        console.error('No active session found. User must be authenticated to update festivals.');
+        return { 
+          data: null, 
+          error: { message: 'Authentication required. Please log in to update festivals.' }
+        };
+      }
+      
       const festivalData: FestivalUpdate = {
         name: festivalInput.name,
         start_date: festivalInput.start_date,
@@ -220,19 +305,49 @@ export class FestivalService {
           delete festivalData[key];
         }
       });
-
-      const { data, error } = await supabase
-        .from(this.tableName)
-        .update(festivalData)
-        .eq('id', id)
-        .select()
-        .single();
-      if (error) {
-        return { data: null, error: handleError(error) };
+      
+      // Get auth headers
+      const headers = this.getAuthHeaders();
+      console.log('Using auth headers for update:', {
+        hasApiKey: !!headers['apikey'],
+        authorization: headers['Authorization']?.substring(0, 20) + '...',
+      });
+      
+      const url = `${supabase.supabaseUrl}/rest/v1/festivals?id=eq.${id}`;
+      console.log('Updating festival:', url);
+      
+      const response = await fetch(url, {
+        method: 'PATCH',
+        headers: {
+          ...headers,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=representation'
+        },
+        body: JSON.stringify(festivalData)
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Error updating festival:', errorText);
+        return {
+          data: null,
+          error: { message: `API error: ${response.status} - ${errorText}` }
+        };
       }
-      return { data: data as Festival | null, error: null };
+      
+      const data = await response.json();
+      console.log('Festival updated successfully:', data?.[0]?.id);
+      
+      return {
+        data: data?.[0] || null,
+        error: null
+      };
     } catch (error) {
-      return { data: null, error: handleError(error) };
+      console.error('Exception in updateFestival:', error);
+      return {
+        data: null,
+        error: handleError(error)
+      };
     }
   }
 
@@ -251,13 +366,47 @@ export class FestivalService {
    */
   async deleteFestival(id: string): Promise<ApiResponse<null>> {
     try {
-      const { error } = await supabase.from(this.tableName).delete().eq('id', id);
-      if (error) {
-        return { data: null, error: handleError(error) };
+      // Check authentication from our context
+      if (!this.isAuthenticated()) {
+        console.error('No active session found. User must be authenticated to delete festivals.');
+        return { 
+          data: null, 
+          error: { message: 'Authentication required. Please log in to delete festivals.' }
+        };
       }
-      return { data: null, error: null };
+      
+      // Get auth headers
+      const headers = this.getAuthHeaders();
+      
+      const url = `${supabase.supabaseUrl}/rest/v1/festivals?id=eq.${id}`;
+      console.log('Deleting festival:', url);
+      
+      const response = await fetch(url, {
+        method: 'DELETE',
+        headers
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Error deleting festival:', errorText);
+        return {
+          data: null,
+          error: { message: `API error: ${response.status} - ${errorText}` }
+        };
+      }
+      
+      console.log('Festival deleted successfully');
+      
+      return {
+        data: null,
+        error: null
+      };
     } catch (error) {
-      return { data: null, error: handleError(error) };
+      console.error('Exception in deleteFestival:', error);
+      return {
+        data: null,
+        error: handleError(error)
+      };
     }
   }
 

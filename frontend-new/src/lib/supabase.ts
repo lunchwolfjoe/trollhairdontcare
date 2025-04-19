@@ -1,6 +1,3 @@
-// Re-export supabase client from supabaseClient.ts
-// This file exists to maintain compatibility with imports that use '../../lib/supabase'
-import { supabase } from './supabaseClient';
-
-export { supabase };
-export default supabase; 
+// Proxy re-export from supabaseClient.js to maintain type compatibility
+export * from './supabaseClient';
+export { default } from './supabaseClient'; 

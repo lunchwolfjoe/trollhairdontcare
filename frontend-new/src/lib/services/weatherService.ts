@@ -1,206 +1,168 @@
 import { supabase } from '../supabaseClient';
+import { ApiResponse, handleError } from './api';
 
 // Weather service constants
 // Update the API key with the new one provided
 const API_KEY = 'ec84afbd4bf13bc1ea6f79e8bea8ba01';
-const DEFAULT_LOCATION = {
-  name: 'Kerrville, TX',
-  lat: 30.0469,
-  lon: -99.1403
-};
 
-/**
- * Gets the current weather for a location
- */
-export const getCurrentWeather = async (lat = DEFAULT_LOCATION.lat, lon = DEFAULT_LOCATION.lon) => {
-  try {
-    const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=imperial`;
-    console.log('Fetching weather from:', url);
-    const response = await fetch(url);
-    
-    if (!response.ok) {
-      let errorData;
-      try {
-        errorData = await response.json();
-      } catch (e) {
-        errorData = { message: response.statusText };
-      }
-      throw new Error(`API Error (${response.status}): ${errorData.message || 'Unknown error'}`);
-    }
-    
-    const data = await response.json();
-    console.log('Weather data received:', data);
-    return { data, error: null };
-  } catch (error) {
-    console.error('Error fetching current weather:', error);
-    return { data: null, error };
-  }
-};
+// Define a type for the location structure
+interface WeatherLocation {
+  name: string;
+  lat: number;
+  lon: number;
+}
 
-/**
- * Gets the weather forecast for a location
- */
-export const getWeatherForecast = async (lat = DEFAULT_LOCATION.lat, lon = DEFAULT_LOCATION.lon) => {
-  try {
-    const url = `https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=imperial`;
-    console.log('Fetching forecast from:', url);
-    const response = await fetch(url);
-    
-    if (!response.ok) {
-      let errorData;
-      try {
-        errorData = await response.json();
-      } catch (e) {
-        errorData = { message: response.statusText };
-      }
-      throw new Error(`API Error (${response.status}): ${errorData.message || 'Unknown error'}`);
-    }
-    
-    const data = await response.json();
-    console.log('Forecast data received:', data);
-    return { data, error: null };
-  } catch (error) {
-    console.error('Error fetching weather forecast:', error);
-    return { data: null, error };
-  }
-};
+// Define the weather settings interface
+export interface WeatherSettings {
+  location_name: string;
+  location_lat: number;
+  location_lon: number;
+  units: string;
+  update_interval: number;
+}
 
-/**
- * Gets the weather settings from the database
- */
-export const getWeatherSettings = async () => {
-  try {
-    // Try to get settings from database
+// Updated WeatherSettings DB Row structure based on supabase.ts
+interface WeatherSettingsDBRow {
+  id?: number;
+  user_id: string; // Assuming user_id is the PK/FK
+  location: string; // Likely storing name or identifier
+  api_key: string; // Store API key here? Be cautious with security.
+  units: string;
+  update_interval?: number; // Make optional if not always present
+  location_lat?: number; // Add if in DB
+  location_lon?: number; // Add if in DB
+  created_at?: string;
+}
+
+export class WeatherService {
+  // Define the default location object with necessary properties
+  static readonly DEFAULT_LOCATION: WeatherLocation = {
+    name: 'Kerrville, TX',
+    lat: 30.0469,
+    lon: -99.1403
+  };
+
+  /**
+   * Gets the current weather for a location
+   */
+  getCurrentWeather = async (lat = WeatherService.DEFAULT_LOCATION.lat, lon = WeatherService.DEFAULT_LOCATION.lon): Promise<ApiResponse<any>> => {
     try {
+      const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=imperial`;
+      console.log('Fetching weather from:', url);
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        let errorData;
+        try {
+          errorData = await response.json();
+        } catch (e) {
+          errorData = { message: response.statusText };
+        }
+        throw new Error(`API Error (${response.status}): ${errorData.message || 'Unknown error'}`);
+      }
+      
+      const data = await response.json();
+      console.log('Weather data received:', data);
+      return { data, error: null };
+    } catch (error) {
+      console.error('Error fetching current weather:', error);
+      return { data: null, error: handleError(error) };
+    }
+  };
+
+  /**
+   * Gets the weather forecast for a location
+   */
+  getWeatherForecast = async (lat = WeatherService.DEFAULT_LOCATION.lat, lon = WeatherService.DEFAULT_LOCATION.lon): Promise<ApiResponse<any>> => {
+    try {
+      const url = `https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=imperial`;
+      console.log('Fetching forecast from:', url);
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        let errorData;
+        try {
+          errorData = await response.json();
+        } catch (e) {
+          errorData = { message: response.statusText };
+        }
+        throw new Error(`API Error (${response.status}): ${errorData.message || 'Unknown error'}`);
+      }
+      
+      const data = await response.json();
+      console.log('Forecast data received:', data);
+      return { data, error: null };
+    } catch (error) {
+      console.error('Error fetching weather forecast:', error);
+      return { data: null, error: handleError(error) };
+    }
+  };
+
+  async getSettings(userId: string): Promise<ApiResponse<WeatherSettings | null>> {
+    try {
+      // Fetch using DB Row type
       const { data, error } = await supabase
         .from('weather_forecast_settings')
-        .select('*')
-        .single();
-
-      // If table doesn't exist, we'll use default settings
-      if (error && error.code === '42P01') {
-        console.warn('Weather settings table does not exist, using defaults');
-        return {
-          data: {
-            api_key: API_KEY,
-            location_lat: DEFAULT_LOCATION.lat,
-            location_lon: DEFAULT_LOCATION.lon,
-            location_name: DEFAULT_LOCATION.name,
-            update_interval: 3600, // 1 hour in seconds
-          },
-          error: null
-        };
-      }
-
-      if (error) throw error;
-
-      // If no settings found, return default settings
-      if (!data) {
-        return {
-          data: {
-            api_key: API_KEY,
-            location_lat: DEFAULT_LOCATION.lat,
-            location_lon: DEFAULT_LOCATION.lon,
-            location_name: DEFAULT_LOCATION.name,
-            update_interval: 3600, // 1 hour in seconds
-          },
-          error: null
-        };
-      }
-
-      return { data, error: null };
-    } catch (dbError) {
-      console.warn('Error accessing weather settings table, using defaults:', dbError);
-      return {
-        data: {
-          api_key: API_KEY,
-          location_lat: DEFAULT_LOCATION.lat,
-          location_lon: DEFAULT_LOCATION.lon,
-          location_name: DEFAULT_LOCATION.name,
-          update_interval: 3600, // 1 hour in seconds
-        },
-        error: null
-      };
-    }
-  } catch (error) {
-    console.error('Error fetching weather settings:', error);
-    return { 
-      data: {
-        api_key: API_KEY,
-        location_lat: DEFAULT_LOCATION.lat,
-        location_lon: DEFAULT_LOCATION.lon,
-        location_name: DEFAULT_LOCATION.name,
-        update_interval: 3600,
-      }, 
-      error: null 
-    };
-  }
-};
-
-/**
- * Updates or creates weather settings in the database
- */
-export const updateWeatherSettings = async (settings) => {
-  try {
-    // Check if table exists first
-    try {
-      const { error: tableError } = await supabase
-        .from('weather_forecast_settings')
-        .select('count(*)', { count: 'exact', head: true });
+        .select('*') 
+        .eq('user_id', userId)
+        .maybeSingle<WeatherSettingsDBRow>(); // Specify DB row type here
       
-      // If table doesn't exist, we'll return success with defaults
-      if (tableError && tableError.code === '42P01') {
-        console.warn('Weather settings table does not exist, cannot save settings');
-        return { 
-          data: {
-            ...settings,
-            api_key: settings.api_key || API_KEY,
-            location_lat: settings.location_lat || DEFAULT_LOCATION.lat,
-            location_lon: settings.location_lon || DEFAULT_LOCATION.lon,
-            location_name: settings.location_name || DEFAULT_LOCATION.name,
-          }, 
-          error: null 
-        };
+      if (error) {
+        if (error.code === 'PGRST116') { return { data: null, error: null }; }
+        return { data: null, error: handleError(error) };
       }
-    } catch (checkError) {
-      console.warn('Error checking weather settings table:', checkError);
+      // Map DB Row to App settings type
+      const appSettings: WeatherSettings | null = data ? {
+          location_name: data.location || WeatherService.DEFAULT_LOCATION.name, // Map location to name
+          location_lat: data.location_lat || WeatherService.DEFAULT_LOCATION.lat,
+          location_lon: data.location_lon || WeatherService.DEFAULT_LOCATION.lon,
+          units: data.units || 'imperial',
+          update_interval: data.update_interval || 3600,
+      } : null;
+      return { data: appSettings, error: null };
+    } catch (error) {
+      return { data: null, error: handleError(error) };
     }
-    
-    // Check if settings exist
-    const { data: existingSettings } = await getWeatherSettings();
-    
-    // Since the table might not exist, just return the current settings
-    // rather than attempting database updates
-    return { 
-      data: {
-        ...settings,
-        api_key: settings.api_key || API_KEY,
-        location_lat: settings.location_lat || DEFAULT_LOCATION.lat,
-        location_lon: settings.location_lon || DEFAULT_LOCATION.lon,
-        location_name: settings.location_name || DEFAULT_LOCATION.name,
-      }, 
-      error: null 
-    };
-  } catch (error) {
-    console.error('Error updating weather settings:', error);
-    return { 
-      data: {
-        ...settings,
-        api_key: settings.api_key || API_KEY,
-        location_lat: settings.location_lat || DEFAULT_LOCATION.lat,
-        location_lon: settings.location_lon || DEFAULT_LOCATION.lon,
-        location_name: settings.location_name || DEFAULT_LOCATION.name,
-      }, 
-      error: null 
-    };
   }
-};
 
-export const weatherService = {
-  getCurrentWeather,
-  getWeatherForecast,
-  getWeatherSettings,
-  updateWeatherSettings,
-  DEFAULT_LOCATION,
-  API_KEY // Export the API key for debugging
-}; 
+  async saveSettings(userId: string, settings: WeatherSettings): Promise<ApiResponse<WeatherSettings>> {
+     try {
+        // Map App settings to correct DB Row structure for upsert
+        const dataToUpsert: Partial<WeatherSettingsDBRow> = {
+          user_id: userId,
+          location: settings.location_name,
+          units: settings.units,
+          update_interval: settings.update_interval,
+          // Only include lat/lon if they actually exist in the DB schema
+          // location_lat: settings.location_lat,
+          // location_lon: settings.location_lon,
+          // api_key needs separate handling
+        };
+        
+        const { data, error } = await supabase
+           .from('weather_forecast_settings')
+           // Ensure dataToUpsert matches the actual DB table insert/update type
+           .upsert(dataToUpsert as any, { onConflict: 'user_id' }) // Cast to any if strict type match fails
+           .select() 
+           .single<WeatherSettingsDBRow>(); 
+           
+        if (error) {
+           return { data: null, error: handleError(error) };
+        }
+        // Map returned DB row back to App settings type
+        const savedAppSettings: WeatherSettings | null = data ? {
+            location_name: data.location || WeatherService.DEFAULT_LOCATION.name,
+            location_lat: data.location_lat || WeatherService.DEFAULT_LOCATION.lat,
+            location_lon: data.location_lon || WeatherService.DEFAULT_LOCATION.lon,
+            units: data.units || 'imperial',
+            update_interval: data.update_interval || 3600,
+        } : null;
+        
+        return { data: savedAppSettings as WeatherSettings | null, error: null };
+     } catch(error) {
+        return { data: null, error: handleError(error) };
+     }
+  }
+}
+
+export const weatherService = new WeatherService(); 

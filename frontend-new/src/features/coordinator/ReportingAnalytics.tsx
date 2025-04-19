@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   Box,
@@ -46,7 +46,7 @@ import {
   FindInPage as SearchIcon,
 } from '@mui/icons-material';
 import { festivalService } from '../../lib/services';
-import { Festival } from '../../lib/types/models';
+import { Festival, Task, TaskCategory, Volunteer, Profile, Crew, ShiftAssignment, Assignment } from '../../lib/types/models';
 import { supabase } from '../../lib/supabaseClient';
 
 // Mock data - will be replaced with Supabase integration
@@ -328,187 +328,133 @@ const ReportingAnalytics: React.FC = () => {
     setDailySummaries([]);
     
     try {
-      // First get volunteers for this festival
-      const { data: festivalVolunteers, error: festivalVolunteersError } = await supabase
+      // Fetch volunteers with profiles
+      const { data: festivalVolunteers, error: volError } = await supabase
         .from('volunteers')
-        .select('id')
+        .select('id, profiles!inner(*)') 
         .eq('festival_id', festivalId);
-      
-      if (festivalVolunteersError) {
-        throw new Error(`Failed to fetch festival volunteers: ${festivalVolunteersError.message}`);
-      }
-      
-      // Extract volunteer IDs
+      if (volError) throw new Error(`Volunteers: ${volError.message}`);
       const festivalVolunteerIds = festivalVolunteers?.map(v => v.id) || [];
-      
       if (festivalVolunteerIds.length === 0) {
         setError("No volunteers found for this festival");
         setLoading(false);
         return;
       }
-      
-      // Fetch volunteer hours data
-      const { data: volunteerHoursData, error: volunteerHoursError } = await supabase
-        .from('volunteers')
-        .select(`
-          id,
-          profiles:profile_id (
-            id,
-            full_name
-          ),
-          assignments (
-            id,
-            start_time,
-            end_time,
-            status
-          )
-        `)
-        .eq('festival_id', festivalId);
-      
-      if (volunteerHoursError) {
-        throw new Error(`Failed to fetch volunteer hours: ${volunteerHoursError.message}`);
-      }
-      
-      // Separately fetch crew information
-      const { data: crewMembersData, error: crewMembersError } = await supabase
-        .from('crew_members')
-        .select(`
-          id,
-          volunteer_id,
-          crew_id
-        `);
-      
-      if (crewMembersError) {
-        console.error('Failed to fetch crew members:', crewMembersError);
-        // Continue with available data
-      }
-      
+
+      // Fetch crew memberships
+      const { data: crewMembersData, error: cmError } = await supabase
+        .from('crew_members') 
+        .select('volunteer_id, crew_id') 
+        .in('volunteer_id', festivalVolunteerIds);
+      if (cmError) console.error('Crew Members Error:', cmError);
+
       // Fetch crews
-      const { data: crewsData, error: crewsDataError } = await supabase
+      const { data: crewsData, error: crewError } = await supabase
         .from('crews')
-        .select('id, name');
+        .select('id, name')
+        .eq('festival_id', festivalId);
+      if (crewError) console.error('Crews Error:', crewError);
+
+      // Fetch assignments
+      const { data: assignmentsData, error: assignError } = await supabase
+        .from('assignments') 
+        .select('volunteer_id, crew_id, start_time, end_time, status') 
+        .in('volunteer_id', festivalVolunteerIds);
+      if (assignError) console.error('Assignments Error:', assignError);
       
-      if (crewsDataError) {
-        console.error('Failed to fetch crews:', crewsDataError);
-        // Continue with available data
-      }
-      
-      // Process volunteer hours data
-      const processedVolunteerHours = volunteerHoursData?.map(volunteer => {
-        // Find crew if available
-        const volunteerCrewMember = crewMembersData?.find(
-          cm => cm.volunteer_id === volunteer.id
-        );
-        
+      // Cast assignments data safely
+      const typedAssignments: Assignment[] = (assignmentsData || []) as Assignment[];
+
+      // Process volunteer hours - ensure data exists and types match
+      const processedVolunteerHours = festivalVolunteers?.map(volunteer => {
+        const profile = volunteer.profiles as Profile | null;
+        const volunteerName = profile?.full_name || 'Unknown';
+        const volunteerCrewMember = crewMembersData?.find(cm => cm?.volunteer_id === volunteer.id);
         let crewName = 'Unassigned';
         if (volunteerCrewMember) {
           const crew = crewsData?.find(c => c.id === volunteerCrewMember.crew_id);
           crewName = crew?.name || 'Unassigned';
         }
+        const volunteerAssignments = typedAssignments.filter(a => a?.volunteer_id === volunteer.id);
+        const completedAssignments = volunteerAssignments.filter(a => a?.status === 'completed');
         
-        const assignments = volunteer.assignments || [];
-        const completedAssignments = assignments.filter(a => a.status === 'completed');
-        
+        let status: VolunteerHours['status'] = 'missed'; 
+        if (completedAssignments.length > 0 && completedAssignments.length === volunteerAssignments.length) {
+            status = 'completed';
+        } else if (completedAssignments.length > 0) {
+            status = 'partial';
+        }
+
         return {
           volunteerId: volunteer.id,
-          volunteerName: volunteer.profiles?.full_name || 'Unknown',
+          volunteerName: volunteerName,
           crew: crewName,
-          date: new Date().toISOString().split('T')[0], // Current date for now
-          hoursWorked: completedAssignments.reduce((total, assignment) => {
-            const start = new Date(assignment.start_time);
-            const end = new Date(assignment.end_time);
-            const hours = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
+          date: new Date().toISOString().split('T')[0], // Use current date as placeholder
+          hoursWorked: completedAssignments.reduce((total, assignment) => { 
+            if (!assignment || !assignment.start_time || !assignment.end_time) return total;
+            const start = new Date(assignment.start_time).getTime();
+            const end = new Date(assignment.end_time).getTime();
+            if (isNaN(start) || isNaN(end)) return total; 
+            const hours = (end - start) / (1000 * 60 * 60);
             return total + hours;
           }, 0),
           shiftsCompleted: completedAssignments.length,
-          status: completedAssignments.length > 0 ? 'completed' : 'missed'
+          status: status,
         };
-      });
+      }) || [];
+      // Ensure the final array matches VolunteerHours[] type
+      setVolunteerHours(processedVolunteerHours as VolunteerHours[]); 
       
-      setVolunteerHours(processedVolunteerHours);
-      
-      // Fetch crew performance data
-      const { data: crewData, error: crewError } = await supabase
-        .from('crews')
-        .select(`
-          id,
-          name
-        `)
-        .eq('festival_id', festivalId);
-      
-      if (crewError) {
-        throw new Error(`Failed to fetch crew data: ${crewError.message}`);
-      }
-      
-      // Fetch assignments for volunteers in this festival
-      const { data: assignmentsData, error: assignmentsError } = await supabase
-        .from('assignments')
-        .select(`
-          id,
-          volunteer_id,
-          crew_id,
-          start_time,
-          end_time,
-          status
-        `)
-        .in('volunteer_id', festivalVolunteerIds);
-      
-      if (assignmentsError) {
-        console.error('Failed to fetch assignments for crews:', assignmentsError);
-        // Continue with available data
-      }
-      
-      // Process crew performance data
-      const processedCrewPerformance = crewData?.map(crew => {
-        // Find assignments for this crew
-        const crewAssignments = assignmentsData?.filter(a => a.crew_id === crew.id) || [];
-        const completedAssignments = crewAssignments.filter(a => a.status === 'completed');
-        
-        // Find crew members for this crew
-        const crewMembers = crewMembersData?.filter(cm => cm.crew_id === crew.id) || [];
+      // Process crew performance - ensure data exists and types match
+      const processedCrewPerformance = crewsData?.map(crew => {
+        // Check if typedAssignments exists before filtering
+        const crewAssignments = typedAssignments?.filter(a => a?.crew_id === crew.id) || [];
+        const completedCrewAssignments = crewAssignments.filter(a => a?.status === 'completed');
+        const crewMembers = crewMembersData?.filter(cm => cm?.crew_id === crew.id) || [];
         const totalVolunteers = crewMembers.length;
-        
+
         return {
           crewId: crew.id,
           crewName: crew.name,
           totalVolunteers: totalVolunteers,
-          shiftsCompleted: completedAssignments.length,
+          shiftsCompleted: completedCrewAssignments.length,
           shiftsScheduled: crewAssignments.length,
-          hoursLogged: completedAssignments.reduce((total, assignment) => {
-            const start = new Date(assignment.start_time);
-            const end = new Date(assignment.end_time);
-            const hours = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
-            return total + hours;
+          hoursLogged: completedCrewAssignments.reduce((total, assignment) => {
+             if (!assignment || !assignment.start_time || !assignment.end_time) return total;
+             const start = new Date(assignment.start_time).getTime();
+             const end = new Date(assignment.end_time).getTime();
+             if (isNaN(start) || isNaN(end)) return total;
+             const hours = (end - start) / (1000 * 60 * 60);
+             return total + hours;
           }, 0),
           completionRate: crewAssignments.length > 0 
-            ? completedAssignments.length / crewAssignments.length
+            ? completedCrewAssignments.length / crewAssignments.length
             : 0
         };
-      });
-      
-      setCrewPerformance(processedCrewPerformance);
-      
-      // Process daily summary data
+      }) || [];
+      // Ensure final array matches CrewPerformance[]
+      setCrewPerformance(processedCrewPerformance as CrewPerformance[]); 
+
+      // Process daily summaries - ensure data exists
       const today = new Date().toISOString().split('T')[0];
-      const todayAssignments = assignmentsData?.filter(a => 
-        a.start_time?.startsWith(today)
-      ) || [];
-      
+      // Check if typedAssignments exists before filtering
+      const todayAssignments = typedAssignments?.filter(a => a?.start_time?.startsWith(today)) || [];
       const dailySummary: DailySummary = {
-        totalVolunteers: new Set(todayAssignments.map(a => a.volunteer_id)).size,
+        totalVolunteers: new Set(todayAssignments.map(a => a?.volunteer_id)).size,
         totalHours: Math.round(todayAssignments.reduce((acc, a) => {
-          if (!a.start_time || !a.end_time) return acc;
+          if (!a || !a.start_time || !a.end_time) return acc;
           const start = new Date(a.start_time).getTime();
           const end = new Date(a.end_time).getTime();
-          return acc + (end - start) / (1000 * 60 * 60); // Convert ms to hours
+          if (isNaN(start) || isNaN(end)) return acc;
+          const hours = (end - start) / (1000 * 60 * 60);
+          return acc + hours;
         }, 0)),
-        completedShifts: todayAssignments.filter(a => a.status === 'completed').length,
-        pendingShifts: todayAssignments.filter(a => a.status === 'pending').length,
-        tasks: {}
+        completedShifts: todayAssignments.filter(a => a?.status === 'completed').length,
+        pendingShifts: todayAssignments.filter(a => a?.status === 'scheduled' || a?.status === 'in_progress').length,
+        tasks: { completed: 0, inProgress: 0, notStarted: 0 }, // Placeholder Task data
       };
-      
       setDailySummaries([dailySummary]);
-      
+
     } catch (err: any) {
       console.error('Error fetching report data:', err);
       setError(err.message);

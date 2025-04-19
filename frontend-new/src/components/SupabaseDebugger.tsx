@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
-import { Box, Typography, Paper, List, ListItem, ListItemText, Button, Divider, Alert } from '@mui/material';
+import { Box, Typography, Paper, List, ListItem, ListItemText, Button, Divider, Alert, Chip } from '@mui/material';
 import { useSimpleAuth } from '../contexts/SimpleAuthContext';
 
 const SUPABASE_URL = "https://ysljpqtpbpugekhrdocq.supabase.co";
@@ -14,20 +14,35 @@ const SupabaseDebugger: React.FC = () => {
   const [userRolesResult, setUserRolesResult] = useState<any>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [directTestResult, setDirectTestResult] = useState<any>(null);
+  const [deploymentType, setDeploymentType] = useState<string>("unknown");
   
   const { authenticated, user, signOut } = useSimpleAuth();
 
   useEffect(() => {
+    // Detect environment
+    const hostname = window.location.hostname;
+    const isProduction = hostname !== 'localhost' && !hostname.includes('127.0.0.1');
+    const isPreviewing = hostname.includes('vercel') && hostname.includes('preview');
+    
+    setDeploymentType(
+      isProduction 
+        ? (isPreviewing ? "vercel-preview" : "production") 
+        : "development"
+    );
+    
     // Log environment variables
     const envData = {
       VITE_SUPABASE_URL: import.meta.env.VITE_SUPABASE_URL,
       VITE_SUPABASE_ANON_KEY: import.meta.env.VITE_SUPABASE_ANON_KEY ? 
         import.meta.env.VITE_SUPABASE_ANON_KEY.substring(0, 15) + '...' : null,
       VITE_USE_MOCK_DATA: import.meta.env.VITE_USE_MOCK_DATA,
-      MODE: import.meta.env.MODE
+      MODE: import.meta.env.MODE,
+      HOSTNAME: hostname,
+      PROTOCOL: window.location.protocol,
+      IS_SECURE: window.location.protocol === 'https:'
     };
     
-    console.log('Environment Variables:', envData);
+    console.log('Environment Information:', envData);
     setEnvInfo(envData);
 
     // Run basic test query
@@ -56,6 +71,29 @@ const SupabaseDebugger: React.FC = () => {
     };
 
     testQuery();
+    
+    // Get current auth session info
+    const checkSession = async () => {
+      try {
+        const { data, error } = await supabase.auth.getSession();
+        if (error) {
+          console.error('Session check error:', error);
+          setSessionInfo({ error: error.message });
+        } else {
+          setSessionInfo(data.session ? { 
+            expires_at: data.session.expires_at,
+            token: data.session.access_token ? data.session.access_token.substring(0, 15) + '...' : null,
+            refresh_token: data.session.refresh_token ? '(present)' : '(missing)',
+            user_id: data.session.user?.id
+          } : { message: 'No active session' });
+        }
+      } catch (err) {
+        console.error('Session check exception:', err);
+        setSessionInfo({ error: 'Failed to check session' });
+      }
+    };
+
+    checkSession();
   }, []);
 
   const toggleVisibility = () => setVisible(!visible);
@@ -106,13 +144,31 @@ const SupabaseDebugger: React.FC = () => {
     try {
       setIsRefreshing(true);
       
-      // Get token from localStorage
-      const token = localStorage.getItem('auth_token');
+      // Get the session directly from Supabase client
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
       
-      if (!token) {
-        alert('No auth token found in localStorage');
+      if (sessionError) {
+        console.error('Session retrieval error:', sessionError);
+        alert(`Error retrieving session: ${sessionError.message}`);
+        setIsRefreshing(false);
         return;
       }
+      
+      if (!sessionData.session) {
+        // No session found - check localStorage for any tokens
+        const tokens = Object.keys(localStorage)
+          .filter(key => key.includes('auth') || key.includes('supabase'))
+          .map(key => `${key}: ${localStorage.getItem(key)?.substring(0, 10) || 'null'}...`);
+        
+        alert(`No active Supabase session found. \n\nFound related localStorage items: ${tokens.join(', ') || 'none'}`);
+        setIsRefreshing(false);
+        return;
+      }
+      
+      // We have a session
+      const token = sessionData.session.access_token;
+      console.log('Session found with token length:', token.length);
+      console.log('Token preview:', token.substring(0, 20) + '...');
       
       // Test token with API
       const response = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
@@ -125,12 +181,23 @@ const SupabaseDebugger: React.FC = () => {
       });
       
       if (!response.ok) {
-        alert(`Auth token test failed: ${response.status} ${response.statusText}`);
+        const errorText = await response.text();
+        console.error('Token validation error:', response.status, response.statusText, errorText);
+        alert(`Auth token test failed: ${response.status} ${response.statusText}\n${errorText}`);
+        setIsRefreshing(false);
         return;
       }
       
       const userData = await response.json();
       alert(`Auth token is valid! User ID: ${userData.id}`);
+      
+      // Update session info
+      setSessionInfo({ 
+        expires_at: sessionData.session.expires_at,
+        token: token.substring(0, 15) + '...',
+        refresh_token: sessionData.session.refresh_token ? '(present)' : '(missing)',
+        user_id: sessionData.session.user?.id
+      });
     } catch (err) {
       console.error('Token test error:', err);
       alert(`Token test failed with error: ${err.message}`);
@@ -147,6 +214,8 @@ const SupabaseDebugger: React.FC = () => {
       // Then clear any tokens that might be in localStorage
       localStorage.removeItem('auth_token');
       localStorage.removeItem('supabase_auth_token');
+      localStorage.removeItem('local_auth_token');
+      localStorage.removeItem('supabase.auth.token');
       
       // Also try to clear any other auth-related keys
       const localStorageKeys = Object.keys(localStorage);
@@ -156,11 +225,43 @@ const SupabaseDebugger: React.FC = () => {
         }
       });
       
+      // Clear cookies if possible
+      document.cookie.split(';').forEach(function(c) {
+        document.cookie = c.trim().split('=')[0] + '=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;';
+      });
+      
       alert("All auth data cleared. Reloading page...");
       window.location.href = '/login';
     } catch (err) {
       console.error('Force logout error:', err);
       alert(`Error during force logout: ${err.message}`);
+    }
+  };
+  
+  // Force a complete auth state refresh by clearing caches and reloading
+  const forceAuthRefresh = async () => {
+    try {
+      setIsRefreshing(true);
+      
+      // Check if we have a token stored
+      const token = localStorage.getItem('local_auth_token');
+      
+      if (!token) {
+        alert('No auth token found to refresh. Try logging in first.');
+        setIsRefreshing(false);
+        return;
+      }
+      
+      // First try to get a fresh session from Supabase
+      await supabase.auth.refreshSession();
+      
+      // Then reload the page to force a complete reset
+      alert('Auth session refreshed. Reloading page to apply changes...');
+      window.location.reload();
+    } catch (err) {
+      console.error('Force refresh error:', err);
+      alert(`Error during force refresh: ${err.message}`);
+      setIsRefreshing(false);
     }
   };
 
@@ -210,6 +311,12 @@ const SupabaseDebugger: React.FC = () => {
         <Alert severity={authenticated ? "success" : "error"} sx={{ mb: 2 }}>
           Auth Status: {authenticated ? "Authenticated ✓" : "Not Authenticated ✗"}
         </Alert>
+        
+        <Chip 
+          label={`Environment: ${deploymentType}`} 
+          color={deploymentType === "production" ? "primary" : deploymentType === "vercel-preview" ? "warning" : "default"}
+          sx={{ mb: 2 }}
+        />
 
         <Box sx={{ display: 'flex', mb: 2, gap: 1 }}>
           <Button 
@@ -235,6 +342,16 @@ const SupabaseDebugger: React.FC = () => {
         <Box sx={{ display: 'flex', mb: 3, gap: 1 }}>
           <Button 
             variant="contained" 
+            color="warning"
+            onClick={forceAuthRefresh}
+            disabled={isRefreshing}
+            sx={{ flexGrow: 1 }}
+          >
+            Force Refresh
+          </Button>
+          
+          <Button 
+            variant="contained" 
             color="error"
             onClick={forceCleanLogout}
             sx={{ flexGrow: 1 }}
@@ -242,6 +359,25 @@ const SupabaseDebugger: React.FC = () => {
             Force Logout
           </Button>
         </Box>
+        
+        {sessionInfo && (
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
+              Session Info:
+            </Typography>
+            <Box sx={{ 
+              p: 1, 
+              backgroundColor: sessionInfo.user_id ? 'rgba(0,255,0,0.1)' : 'rgba(255,0,0,0.1)',
+              borderRadius: 1,
+              fontSize: '0.8rem',
+              fontFamily: 'monospace',
+              maxHeight: '80px',
+              overflow: 'auto'
+            }}>
+              {JSON.stringify(sessionInfo, null, 2)}
+            </Box>
+          </Box>
+        )}
         
         {directTestResult && (
           <Box sx={{ mb: 2 }}>
@@ -297,7 +433,7 @@ const SupabaseDebugger: React.FC = () => {
             <ListItem key={key}>
               <ListItemText 
                 primary={key} 
-                secondary={value !== null ? value : '(not set)'} 
+                secondary={value !== null ? String(value) : '(not set)'} 
                 secondaryTypographyProps={{ 
                   color: value ? 'text.primary' : 'error'
                 }}

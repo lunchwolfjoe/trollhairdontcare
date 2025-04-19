@@ -1,90 +1,120 @@
 import { useState, useCallback } from 'react';
 
-export type SortDirection = 'asc' | 'desc';
-
 export interface SortConfig {
   key: string;
-  direction: SortDirection;
+  direction: 'asc' | 'desc';
 }
 
-interface SortingHookResult {
+export interface SortingHookResult<T> {
   sortConfig: SortConfig | null;
   requestSort: (key: string) => void;
-  resetSort: () => void;
-  getSortedData: <T>(data: T[]) => T[];
+  getSortedData: (data: T[]) => T[];
+}
+
+export function useSorting<T>(defaultKey?: string, defaultDirection: 'asc' | 'desc' = 'asc'): SortingHookResult<T> {
+  const [sortConfig, setSortConfig] = useState<SortConfig | null>(
+    defaultKey ? { key: defaultKey, direction: defaultDirection } : null
+  );
+
+  const requestSort = useCallback((key: string) => {
+    setSortConfig((currentSort) => {
+      if (!currentSort || currentSort.key !== key) {
+        return { key, direction: 'asc' };
+      }
+
+      if (currentSort.direction === 'asc') {
+        return { key, direction: 'desc' };
+      }
+
+      return null;
+    });
+  }, []);
+
+  const getSortedData = useCallback((data: T[]) => {
+    if (!sortConfig) {
+      return data;
+    }
+
+    return [...data].sort((a, b) => {
+      const aValue = getNestedValue(a, sortConfig.key);
+      const bValue = getNestedValue(b, sortConfig.key);
+
+      if (aValue === bValue) {
+        return 0;
+      }
+
+      if (aValue === null || aValue === undefined) {
+        return sortConfig.direction === 'asc' ? 1 : -1;
+      }
+
+      if (bValue === null || bValue === undefined) {
+        return sortConfig.direction === 'asc' ? -1 : 1;
+      }
+
+      // Handle date strings
+      if (typeof aValue === 'string' && typeof bValue === 'string' && 
+          (sortConfig.key.includes('date') || sortConfig.key.includes('created_at') || sortConfig.key.includes('updated_at'))) {
+        const dateA = new Date(aValue).getTime();
+        const dateB = new Date(bValue).getTime();
+        const result = dateA < dateB ? -1 : 1;
+        return sortConfig.direction === 'asc' ? result : -result;
+      }
+
+      // Handle arrays (like skills)
+      if (Array.isArray(aValue) && Array.isArray(bValue)) {
+        const result = aValue.length < bValue.length ? -1 : 1;
+        return sortConfig.direction === 'asc' ? result : -result;
+      }
+
+      // Handle objects (like profiles)
+      if (typeof aValue === 'object' && aValue !== null && 
+          typeof bValue === 'object' && bValue !== null) {
+        // Try to find a string property to compare
+        const aString = Object.values(aValue).find(v => typeof v === 'string') as string | undefined;
+        const bString = Object.values(bValue).find(v => typeof v === 'string') as string | undefined;
+        
+        if (aString && bString) {
+          const result = aString < bString ? -1 : 1;
+          return sortConfig.direction === 'asc' ? result : -result;
+        }
+        
+        // Fallback to string comparison of the objects
+        const aStr = JSON.stringify(aValue);
+        const bStr = JSON.stringify(bValue);
+        const result = aStr < bStr ? -1 : 1;
+        return sortConfig.direction === 'asc' ? result : -result;
+      }
+
+      // Default comparison for strings, numbers, etc.
+      const result = aValue < bValue ? -1 : 1;
+      return sortConfig.direction === 'asc' ? result : -result;
+    });
+  }, [sortConfig]);
+
+  return { sortConfig, requestSort, getSortedData };
 }
 
 /**
- * Custom hook for handling table sorting
+ * Safely get a nested property from an object using a dot-notation path
+ * @param obj The object to get the property from
+ * @param path The dot-notation path to the property
+ * @returns The value at the path, or null if not found
  */
-const useSorting = <T>(
-  initialSortKey: string = '',
-  initialDirection: SortDirection = 'asc',
-  sortFn?: (a: T, b: T, config: SortConfig) => number
-): SortingHookResult => {
-  const [sortConfig, setSortConfig] = useState<SortConfig | null>(
-    initialSortKey ? { key: initialSortKey, direction: initialDirection } : null
-  );
-
-  // Request a sort on a specific key
-  const requestSort = useCallback((key: string) => {
-    setSortConfig((prevConfig) => {
-      // If we're already sorting by this key, toggle direction
-      if (prevConfig?.key === key) {
-        return {
-          key,
-          direction: prevConfig.direction === 'asc' ? 'desc' : 'asc'
-        };
-      }
-      
-      // Otherwise, sort by this key in ascending order
-      return { key, direction: 'asc' };
-    });
-  }, []);
-
-  // Reset sorting
-  const resetSort = useCallback(() => {
-    setSortConfig(null);
-  }, []);
-
-  // Default sort function that works with primitive values and strings
-  const defaultSortFn = useCallback((a: T, b: T, config: SortConfig) => {
-    const valueA = (a as any)[config.key];
-    const valueB = (b as any)[config.key];
-
-    // Handle undefined or null values
-    if (valueA == null) return config.direction === 'asc' ? -1 : 1;
-    if (valueB == null) return config.direction === 'asc' ? 1 : -1;
-
-    // Handle different value types
-    if (typeof valueA === 'string' && typeof valueB === 'string') {
-      return config.direction === 'asc' 
-        ? valueA.localeCompare(valueB) 
-        : valueB.localeCompare(valueA);
+function getNestedValue<T>(obj: T, path: string): any {
+  if (!obj || !path) return null;
+  
+  return path.split('.').reduce((acc, part) => {
+    if (acc === null || acc === undefined) return null;
+    
+    // Handle array access with square brackets
+    const match = part.match(/^([^\[]+)(\[(\d+)\])?$/);
+    if (!match) return acc[part];
+    
+    const [, prop, , index] = match;
+    if (index !== undefined) {
+      return Array.isArray(acc[prop]) ? acc[prop][parseInt(index, 10)] : null;
     }
-
-    return config.direction === 'asc' 
-      ? (valueA > valueB ? 1 : -1) 
-      : (valueA > valueB ? -1 : 1);
-  }, []);
-
-  // Get sorted data using the current sort configuration
-  const getSortedData = useCallback((data: T[]) => {
-    if (!sortConfig) return [...data];
-
-    return [...data].sort((a, b) => {
-      return sortFn 
-        ? sortFn(a, b, sortConfig) 
-        : defaultSortFn(a, b, sortConfig);
-    });
-  }, [sortConfig, defaultSortFn, sortFn]);
-
-  return {
-    sortConfig,
-    requestSort,
-    resetSort,
-    getSortedData
-  };
-};
-
-export { useSorting }; 
+    
+    return acc[prop];
+  }, obj as any);
+} 

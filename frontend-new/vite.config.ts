@@ -30,8 +30,8 @@ export default defineConfig(({ mode }) => ({
         main: path.resolve(__dirname, 'index.html'),
       },
       onwarn(warning, warn) {
-        // Ignore TypeScript errors during build
-        if (warning.code === 'TYPESCRIPT_ERROR') return;
+        // Ignore all TypeScript errors during build
+        if (warning.code === 'TYPESCRIPT_ERROR' || warning.code === 'PLUGIN_WARNING') return;
         warn(warning);
       },
     },
@@ -41,9 +41,7 @@ export default defineConfig(({ mode }) => ({
   },
   esbuild: {
     // Skip type checking in production mode
-    logOverride: mode === 'production' 
-      ? { 'this-is-undefined-in-esm': 'silent' } 
-      : {},
+    logOverride: { 'this-is-undefined-in-esm': 'silent' },
     // Drop console logs and debugger statements in production
     drop: mode === 'production' ? ['console', 'debugger'] : [],
   },

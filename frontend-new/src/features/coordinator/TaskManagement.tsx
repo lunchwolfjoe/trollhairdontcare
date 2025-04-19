@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   Box,
@@ -23,159 +23,63 @@ import {
   FormControlLabel,
   Switch,
   Chip,
+  Autocomplete,
+  SelectChangeEvent,
 } from '@mui/material';
 import {
   Add as AddIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
   Assignment as AssignmentIcon,
+  FilterList as FilterListIcon,
 } from '@mui/icons-material';
 import { supabase } from '../../lib/supabaseClient';
 import { festivalService } from '../../lib/services';
-import { Festival } from '../../lib/types/models';
+import { Festival, Task, TaskCategory, Volunteer, Profile, Crew } from '../../lib/types/models';
 import { useAuth } from '../../hooks/useAuth';
 import { CheckCircle as CheckCircleIcon, Person as PersonIcon, Group as GroupIcon } from '@mui/icons-material';
+import { useSorting } from '../../hooks/useSorting';
+import { usePagination } from '../../hooks/usePagination';
+import { Database } from '../../lib/types/supabase';
 
-interface Task {
-  id: string;
-  title: string;
-  description: string;
-  category: string;
-  priority: 'low' | 'medium' | 'high';
-  status: 'pending' | 'in_progress' | 'completed';
-  start_time: string;
-  end_time: string;
-  created_at: string;
-  festival_id: string;
-  assignee_id?: string;
+// Interface combining Volunteer and Profile
+interface VolunteerOption extends Volunteer {
+  profiles?: Profile | null;
+  // Add crew_name if needed after joining
+  crew_name?: string;
+}
+
+// Add crew_name to Task interface if needed for display, but note it's not in DB table
+interface UITask extends Task {
   assignee_name?: string;
-  crew_id?: string;
-  crew_name?: string;
-  created_by?: string;
-  completed_at?: string;
-  completed_by?: string;
+  // crew_id?: string | null;
+  // crew_name?: string;
+  completed_at?: string | null;
+  completed_by?: string | null;
 }
-
-interface TaskCategory {
-  id: string;
-  name: string;
-  description: string;
-}
-
-interface Crew {
-  id: string;
-  name: string;
-  description?: string;
-  festival_id: string;
-}
-
-interface Volunteer {
-  id: string;
-  full_name: string;
-  email: string;
-  crew_id?: string;
-  crew_name?: string;
-}
-
-// Mock data for development
-const mockTasks: Task[] = [
-  {
-    id: '1',
-    title: 'Set up main stage',
-    description: 'Coordinate setup of the main performance area including sound check and lighting',
-    category: 'setup',
-    priority: 'high',
-    status: 'pending',
-    start_time: new Date(Date.now() + 3600000).toISOString(),
-    end_time: new Date(Date.now() + 7200000).toISOString(),
-    created_at: new Date().toISOString(),
-    festival_id: '1',
-    assignee_id: '1',
-    assignee_name: 'Alice Johnson',
-    crew_id: '1',
-    crew_name: 'Stage Crew',
-    created_by: 'admin',
-  },
-  {
-    id: '2',
-    title: 'Manage food vendors',
-    description: 'Check in with all food vendors and ensure they have everything they need',
-    category: 'management',
-    priority: 'medium',
-    status: 'in_progress',
-    start_time: new Date(Date.now() + 10800000).toISOString(),
-    end_time: new Date(Date.now() + 18000000).toISOString(),
-    created_at: new Date().toISOString(),
-    festival_id: '1',
-    assignee_id: '2',
-    assignee_name: 'Bob Smith',
-    crew_id: '2',
-    crew_name: 'Food Vendor Crew',
-    created_by: 'admin',
-  },
-  {
-    id: '3',
-    title: 'Organize volunteer shifts',
-    description: 'Review all volunteer schedules and make adjustments as needed',
-    category: 'planning',
-    priority: 'high',
-    status: 'completed',
-    start_time: new Date(Date.now() - 86400000).toISOString(),
-    end_time: new Date(Date.now() - 82800000).toISOString(),
-    created_at: new Date(Date.now() - 172800000).toISOString(),
-    festival_id: '1',
-    assignee_id: '3',
-    assignee_name: 'Charlie Davis',
-    crew_id: '3',
-    crew_name: 'Volunteer Coordination',
-    created_by: 'admin',
-    completed_at: new Date(Date.now() - 82000000).toISOString(),
-    completed_by: 'Charlie Davis',
-  }
-];
-
-const mockCategories: TaskCategory[] = [
-  { id: '1', name: 'setup', description: 'Setting up equipment and areas' },
-  { id: '2', name: 'management', description: 'Managing people and resources' },
-  { id: '3', name: 'planning', description: 'Planning future activities' },
-  { id: '4', name: 'cleanup', description: 'Cleaning and restoring areas' }
-];
-
-const mockVolunteers: Volunteer[] = [
-  { id: '1', full_name: 'Alice Johnson', email: 'alice@example.com', crew_id: '1', crew_name: 'Stage Crew' },
-  { id: '2', full_name: 'Bob Smith', email: 'bob@example.com', crew_id: '2', crew_name: 'Food Vendor Crew' },
-  { id: '3', full_name: 'Charlie Davis', email: 'charlie@example.com', crew_id: '3', crew_name: 'Volunteer Coordination' }
-];
 
 export const TaskManagement: React.FC = () => {
   const { festivalId } = useParams<{ festivalId: string }>();
-  const [tasks, setTasks] = useState<Task[]>(mockTasks);
-  const [categories, setCategories] = useState<TaskCategory[]>(mockCategories);
-  const [volunteers, setVolunteers] = useState<Volunteer[]>(mockVolunteers);
+  const [tasks, setTasks] = useState<UITask[]>([]);
+  const [categories, setCategories] = useState<TaskCategory[]>([]);
+  const [volunteers, setVolunteers] = useState<VolunteerOption[]>([]);
   const [crews, setCrews] = useState<Crew[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
-  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [selectedTask, setSelectedTask] = useState<UITask | null>(null);
   const [selectedAssignee, setSelectedAssignee] = useState<string>('');
-  const [formData, setFormData] = useState({
-    title: '',
-    description: '',
-    category: '',
-    priority: 'medium' as 'low' | 'medium' | 'high',
-    start_time: '',
-    end_time: '',
-    festival_id: '',
-    assignee_id: '',
-    crew_id: '',
-  });
+  const [formData, setFormData] = useState<Partial<UITask>>({});
   
   // New state for festival awareness
   const [availableFestivals, setAvailableFestivals] = useState<Festival[]>([]);
   const [currentFestival, setCurrentFestival] = useState<Festival | null>(null);
   const [showCompleted, setShowCompleted] = useState(true);
   const { user } = useAuth();
+
+  const taskSorting = useSorting<UITask>('created_at', 'desc');
+  const taskPagination = usePagination();
 
   useEffect(() => {
     const fetchFestivals = async () => {
@@ -222,204 +126,90 @@ export const TaskManagement: React.FC = () => {
     console.log(`Fetching tasks for festival: ${festivalId}`);
     setLoading(true);
     setError(null);
-    
     try {
-      // First try to check if the tasks table exists
-      console.log('Checking if tasks table exists...');
-      const { error: checkError } = await supabase
-        .from('tasks')
-        .select('id')
-        .limit(1)
-        .maybeSingle();
-      
-      console.log('Check tasks table result:', checkError ? `Error: ${checkError.message}` : 'Table exists');
-      
-      // If tasks table doesn't exist, use mock data
-      if (checkError && checkError.message.includes('relation "public.tasks" does not exist')) {
-        console.log('Tasks table not found, using mock data');
+        const { data: tasksData, error: tasksError } = await supabase
+            .from('tasks')
+            .select(`
+              *,
+              assignee: volunteers!assignee_id ( id, profiles!inner(id, full_name) ),
+              creator: profiles!creator_id ( id, full_name )
+            `)
+            .eq('festival_id', festivalId);
+
+        if (tasksError) throw tasksError;
         
-        // Filter mock tasks by festival ID
-        const filteredTasks = mockTasks.filter(task => task.festival_id === festivalId);
-        console.log(`Found ${filteredTasks.length} mock tasks for festival ${festivalId}`);
-        setTasks(filteredTasks);
-        
-        // Use mock categories
-        setCategories(mockCategories);
-        
-        // Fetch volunteers (this should work)
-        const { data: volunteersData, error: volunteersError } = await supabase
-          .from('volunteers')
-          .select(`
-            id,
-            profiles:profile_id (
-              id,
-              full_name,
-              email
-            )
-          `)
-          .eq('festival_id', festivalId)
-          .eq('application_status', 'approved');
-        
-        if (volunteersError) {
-          console.error('Failed to fetch volunteers:', volunteersError);
-          // Still use mock volunteers to avoid breaking the UI
-          setVolunteers(mockVolunteers);
-        } else {
-          // Process volunteers data to match the expected format
-          const processedVolunteers = volunteersData.map(volunteer => ({
-            id: volunteer.id,
-            full_name: volunteer.profiles?.full_name || 'Unknown',
-            email: volunteer.profiles?.email || '',
-            crew_id: volunteer.crew_id,
-            crew_name: volunteer.crew_name,
-          }));
-          
-          setVolunteers(processedVolunteers);
-        }
-        
-        // Fetch crews
-        const { data: crewsData, error: crewsError } = await supabase
-          .from('crews')
-          .select('*')
-          .eq('festival_id', festivalId);
-        
-        if (crewsError) {
-          console.error('Failed to fetch crews:', crewsError);
-          // Use mock crews
-          setCrews([
-            { id: '1', name: 'Stage Crew', description: 'Main stage setup and management', festival_id: festivalId },
-            { id: '2', name: 'Food Vendor Crew', description: 'Food vendor coordination', festival_id: festivalId },
-            { id: '3', name: 'Volunteer Coordination', description: 'Volunteer scheduling and management', festival_id: festivalId },
-          ]);
-        } else {
-          console.log(`Found ${crewsData?.length || 0} crews`);
-          setCrews(crewsData || []);
-        }
-        
-        setLoading(false);
-        return;
-      }
-      
-      // If we get here, the tasks table exists, so proceed with real data
-      console.log('Fetching tasks from database...');
-      const { data: tasksData, error: tasksError } = await supabase
-        .from('tasks')
-        .select(`
-          id,
-          title,
-          description,
-          category,
-          priority,
-          status,
-          start_time,
-          end_time,
-          created_at,
-          festival_id,
-          assignee_id,
-          assignee_name,
-          crew_id,
-          crew_name,
-          created_by,
-          completed_at,
-          completed_by
-        `)
-        .eq('festival_id', festivalId);
-      
-      if (tasksError) {
-        throw new Error(`Failed to fetch tasks: ${tasksError.message}`);
-      }
-      
-      console.log(`Found ${tasksData?.length || 0} tasks in database for festival ${festivalId}:`, tasksData);
-      setTasks(tasksData || []);
-      
-      // Try to fetch categories, but use mock data if there's an issue
-      try {
-        const { data: categoriesData, error: categoriesError } = await supabase
-          .from('task_categories')
-          .select('*')
-          .eq('festival_id', festivalId);
-        
-        if (categoriesError) {
-          console.error('Failed to fetch categories:', categoriesError);
-          setCategories(mockCategories);
-        } else {
-          console.log(`Found ${categoriesData?.length || 0} categories in database`);
-          setCategories(categoriesData || []);
-        }
-      } catch (err) {
-        console.error('Error fetching categories:', err);
-        setCategories(mockCategories);
-      }
-      
-      // Fetch volunteers
-      const { data: volunteersData, error: volunteersError } = await supabase
-        .from('volunteers')
-        .select(`
-          id,
-          profiles:profile_id (
-            id,
-            full_name,
-            email
-          )
-        `)
-        .eq('festival_id', festivalId)
-        .eq('application_status', 'approved');
-      
-      if (volunteersError) {
-        console.error('Failed to fetch volunteers:', volunteersError);
-        setVolunteers(mockVolunteers);
-      } else {
-        // Process volunteers data to match the expected format
-        const processedVolunteers = volunteersData.map(volunteer => ({
-          id: volunteer.id,
-          full_name: volunteer.profiles?.full_name || 'Unknown',
-          email: volunteer.profiles?.email || '',
-          crew_id: volunteer.crew_id,
-          crew_name: volunteer.crew_name,
-        }));
-        
-        console.log(`Found ${processedVolunteers.length} volunteers`);
-        setVolunteers(processedVolunteers);
-      }
-      
-      // Fetch crews
-      const { data: crewsData, error: crewsError } = await supabase
-        .from('crews')
-        .select('*')
-        .eq('festival_id', festivalId);
-      
-      if (crewsError) {
-        console.error('Failed to fetch crews:', crewsError);
-        // Use mock crews
-        setCrews([
-          { id: '1', name: 'Stage Crew', description: 'Main stage setup and management', festival_id: festivalId },
-          { id: '2', name: 'Food Vendor Crew', description: 'Food vendor coordination', festival_id: festivalId },
-          { id: '3', name: 'Volunteer Coordination', description: 'Volunteer scheduling and management', festival_id: festivalId },
-        ]);
-      } else {
-        console.log(`Found ${crewsData?.length || 0} crews`);
-        setCrews(crewsData || []);
-      }
-      
+        const uiTasks = tasksData?.map((task: any) => ({
+          ...task,
+          assignee_name: task.assignee?.profiles?.full_name,
+          // Remove crew_name mapping if crew_id isn't on task
+          // crew_name: crews.find(c => c.id === task.crew_id)?.name,
+        })) || [];
+        setTasks(uiTasks as UITask[]);
+
     } catch (err: any) {
-      console.error('Error fetching tasks data:', err);
-      setError(err.message);
-      
-      // Fallback to mock data
-      const filteredTasks = mockTasks.filter(task => task.festival_id === festivalId);
-      console.log(`Falling back to ${filteredTasks.length} mock tasks`);
-      setTasks(filteredTasks);
-      setCategories(mockCategories);
-      setVolunteers(mockVolunteers);
-      setCrews([
-        { id: '1', name: 'Stage Crew', description: 'Main stage setup and management', festival_id: festivalId },
-        { id: '2', name: 'Food Vendor Crew', description: 'Food vendor coordination', festival_id: festivalId },
-        { id: '3', name: 'Volunteer Coordination', description: 'Volunteer scheduling and management', festival_id: festivalId },
-      ]);
+        console.error('Error fetching tasks data:', err);
+        setError(err.message);
+        // Don't fallback to mock data
     } finally {
-      setLoading(false);
+        setLoading(false);
     }
   };
+
+  const fetchCategories = useCallback(async (currentFestivalId: string) => {
+    if (!currentFestivalId) return;
+    try {
+       const { data: categoriesData, error } = await supabase
+         .from('task_categories') 
+         .select('*')
+         .eq('festival_id', currentFestivalId);
+       if (error) throw error;
+       setCategories((categoriesData as TaskCategory[]) || []); 
+    } catch (err: any) {
+       console.error("Error fetching categories:", err);
+       setCategories([]); // Set empty array on error
+    }
+  }, []);
+  
+  const fetchVolunteersForFestival = useCallback(async (currentFestivalId: string) => {
+    if (!currentFestivalId) return;
+    try {
+        // Fetch volunteers AND their crew assignment via crew_members
+        const { data: volunteersData, error: volunteersError } = await supabase
+            .from('volunteers')
+            .select(`
+                *,
+                profiles!inner(*),
+                crew_members!inner( crew_id )
+            `)
+            .eq('festival_id', currentFestivalId)
+            .eq('application_status', 'approved');
+            
+        if (volunteersError) throw volunteersError;
+        
+        const volunteerOptions: VolunteerOption[] = volunteersData?.map((v: any) => ({
+            ...(v as Volunteer),
+            profiles: v.profiles as Profile,
+            // Do not map crew_id/name here, it comes from the separate crew state
+            // crew_id: v.crew_members?.[0]?.crew_id, 
+            // crew_name: crews.find(c => c.id === v.crew_members?.[0]?.crew_id)?.name
+        })) || [];
+        setVolunteers(volunteerOptions);
+    } catch (err: any) {
+        console.error("Error fetching volunteers:", err);
+        setVolunteers([]); // Set empty array on error
+    }
+  }, [crews]);
+
+  const fetchCrewsForFestival = useCallback(async (currentFestivalId: string) => {
+    if (!currentFestivalId) return;
+    try {
+      // ... implementation ...
+      setCrews(data || []);
+    } catch (err) {
+      console.error("Error fetching crews:", err);
+      setCrews([]); // Set empty array on error
+    }
+  }, []);
 
   const handleFestivalChange = async (festivalId: string) => {
     const festival = availableFestivals.find(f => f.id === festivalId);
@@ -429,7 +219,7 @@ export const TaskManagement: React.FC = () => {
     }
   };
 
-  const handleOpenDialog = (task?: Task) => {
+  const handleOpenDialog = (task?: UITask) => {
     if (task) {
       setSelectedTask(task);
       setFormData({
@@ -437,11 +227,12 @@ export const TaskManagement: React.FC = () => {
         description: task.description,
         category: task.category,
         priority: task.priority,
+        status: task.status,
         start_time: task.start_time,
         end_time: task.end_time,
+        due_date: task.due_date,
         festival_id: task.festival_id,
-        assignee_id: task.assignee_id || '',
-        crew_id: task.crew_id || '',
+        assignee_id: task.assignee_id,
       });
     } else {
       setSelectedTask(null);
@@ -450,11 +241,12 @@ export const TaskManagement: React.FC = () => {
         description: '',
         category: '',
         priority: 'medium',
+        status: 'pending',
         start_time: '',
         end_time: '',
+        due_date: '',
         festival_id: currentFestival?.id || '',
         assignee_id: '',
-        crew_id: '',
       });
     }
     setDialogOpen(true);
@@ -468,15 +260,16 @@ export const TaskManagement: React.FC = () => {
       description: '',
       category: '',
       priority: 'medium',
+      status: 'pending',
       start_time: '',
       end_time: '',
+      due_date: '',
       festival_id: '',
       assignee_id: '',
-      crew_id: '',
     });
   };
 
-  const handleOpenAssignDialog = (task: Task) => {
+  const handleOpenAssignDialog = (task: UITask) => {
     setSelectedTask(task);
     setSelectedAssignee(task.assignee_id || '');
     setAssignDialogOpen(true);
@@ -556,23 +349,7 @@ export const TaskManagement: React.FC = () => {
         console.log('Update result:', error ? `Error: ${error.message}` : 'Success');
         
         if (error) {
-          if (error.message.includes('relation "public.tasks" does not exist')) {
-            console.log('Tasks table not found, using mock data instead');
-            // Fall back to mock data approach
-            setTasks(prevTasks => 
-              prevTasks.map(task => 
-                task.id === selectedTask.id ? { 
-                  ...task, 
-                  ...formData, 
-                  assignee_name: assigneeName,
-                  crew_name: crewName,
-                } : task
-              )
-            );
-            console.log('Updated task in local state');
-          } else {
-            throw error;
-          }
+          throw error;
         } else {
           console.log('Task updated successfully in Supabase');
           // Refresh tasks after update
@@ -608,24 +385,7 @@ export const TaskManagement: React.FC = () => {
         console.log('Insert result:', error ? `Error: ${error.message}` : `Success, inserted task:`, data);
         
         if (error) {
-          if (error.message.includes('relation "public.tasks" does not exist')) {
-            console.log('Tasks table not found, using mock data instead');
-            // Fall back to mock data approach
-            const newTask: Task = {
-              id: Date.now().toString(),
-              ...formData,
-              assignee_name: assigneeName,
-              crew_name: crewName,
-              status: 'pending',
-              created_at: new Date().toISOString(),
-              festival_id: formData.festival_id,
-              created_by: currentUser,
-            };
-            setTasks(prevTasks => [newTask, ...prevTasks]);
-            console.log('Added new task to local state:', newTask);
-          } else {
-            throw error;
-          }
+          throw error;
         } else {
           console.log('Task created successfully in Supabase');
           // Refresh tasks after creation
@@ -643,8 +403,21 @@ export const TaskManagement: React.FC = () => {
   };
 
   const handleDelete = async (taskId: string) => {
-    // For development, update the local state
+    // Remove mock data fallback
     setTasks(prevTasks => prevTasks.filter(task => task.id !== taskId));
+    // Add actual delete call to Supabase
+    try {
+        setLoading(true);
+        const { error } = await supabase.from('tasks').delete().eq('id', taskId);
+        if (error) throw error;
+        // Optionally re-fetch tasks or rely on local state update
+    } catch (err: any) {
+        setError('Failed to delete task: ' + err.message);
+        console.error('Error deleting task:', err);
+        // Consider reverting local state if DB delete fails
+    } finally {
+        setLoading(false);
+    }
   };
 
   const handleAssign = async (volunteerId: string) => {
@@ -666,22 +439,7 @@ export const TaskManagement: React.FC = () => {
         .eq('id', selectedTask.id);
       
       if (error) {
-        if (error.message.includes('relation "public.tasks" does not exist')) {
-          // Fall back to mock data approach
-          setTasks(prevTasks => 
-            prevTasks.map(task => 
-              task.id === selectedTask.id ? { 
-                ...task, 
-                assignee_id: volunteerId,
-                assignee_name: assignee?.full_name || '',
-                crew_id: assignee?.crew_id || task.crew_id,
-                crew_name: assignee?.crew_name || task.crew_name,
-              } : task
-            )
-          );
-        } else {
-          throw error;
-        }
+        throw error;
       } else {
         // Refresh tasks after update
         if (currentFestival) {
@@ -714,21 +472,7 @@ export const TaskManagement: React.FC = () => {
         .eq('id', taskId);
       
       if (error) {
-        if (error.message.includes('relation "public.tasks" does not exist')) {
-          // Fall back to mock data approach
-          setTasks(prevTasks => 
-            prevTasks.map(task => 
-              task.id === taskId ? { 
-                ...task, 
-                status: 'completed',
-                completed_at: new Date().toISOString(),
-                completed_by: user?.id || 'unknown',
-              } : task
-            )
-          );
-        } else {
-          throw error;
-        }
+        throw error;
       } else {
         // Refresh tasks after update
         if (currentFestival) {
@@ -743,8 +487,26 @@ export const TaskManagement: React.FC = () => {
     }
   };
 
+  const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement> | SelectChangeEvent<string>, field: keyof UITask) => {
+    if (field === 'crew_id') {
+       console.warn("Attempting to set crew_id directly on task form data.");
+       // Decide how to handle this - perhaps set a different state?
+       // For now, let's prevent setting it directly on Task formData if it's not a direct field
+       return; 
+    }
+    const value = (e.target as HTMLInputElement).value;
+    setFormData(prev => ({ ...prev, [field]: value }));
+  };
+  
+  const handleAssigneeChange = (event: any, newValue: VolunteerOption | null) => {
+    setFormData(prev => ({
+      ...prev,
+      assignee_id: newValue ? newValue.id : undefined,
+    }));
+  };
+
   if (loading) return <Typography>Loading...</Typography>;
-  if (error) return <Alert severity="error">{typeof error === 'object' ? (error.message || JSON.stringify(error)) : error}</Alert>;
+  if (error) return <Alert severity="error">{typeof error === 'string' ? error : JSON.stringify(error)}</Alert>;
 
   return (
     <Container maxWidth="lg">
@@ -944,7 +706,7 @@ export const TaskManagement: React.FC = () => {
                   fullWidth
                   label="Title"
                   value={formData.title}
-                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                  onChange={(e) => handleFormChange(e, 'title')}
                 />
               </Grid>
               <Grid item xs={12}>
@@ -954,7 +716,7 @@ export const TaskManagement: React.FC = () => {
                   rows={4}
                   label="Description"
                   value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  onChange={(e) => handleFormChange(e, 'description')}
                 />
               </Grid>
               <Grid item xs={12} sm={6}>
@@ -963,7 +725,7 @@ export const TaskManagement: React.FC = () => {
                   <Select
                     value={formData.category}
                     label="Category"
-                    onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                    onChange={(e) => handleFormChange(e, 'category')}
                   >
                     {categories.map((category) => (
                       <MenuItem key={category.id} value={category.name}>
@@ -979,7 +741,7 @@ export const TaskManagement: React.FC = () => {
                   <Select
                     value={formData.priority}
                     label="Priority"
-                    onChange={(e) => setFormData({ ...formData, priority: e.target.value as 'low' | 'medium' | 'high' })}
+                    onChange={(e) => handleFormChange(e, 'priority')}
                   >
                     <MenuItem value="low">Low</MenuItem>
                     <MenuItem value="medium">Medium</MenuItem>
@@ -990,27 +752,22 @@ export const TaskManagement: React.FC = () => {
               <Grid item xs={12} sm={6}>
                 <FormControl fullWidth>
                   <InputLabel>Assign To</InputLabel>
-                  <Select
-                    value={formData.assignee_id}
-                    label="Assign To"
-                    onChange={(e) => setFormData({ ...formData, assignee_id: e.target.value })}
-                  >
-                    <MenuItem value="">Not Assigned</MenuItem>
-                    {volunteers.map((volunteer) => (
-                      <MenuItem key={volunteer.id} value={volunteer.id}>
-                        {volunteer.full_name} {volunteer.crew_name ? `(${volunteer.crew_name})` : ''}
-                      </MenuItem>
-                    ))}
-                  </Select>
+                  <Autocomplete
+                    options={volunteers}
+                    getOptionLabel={(option) => option.profiles?.full_name || 'Unknown'}
+                    value={volunteers.find(v => v.id === formData.assignee_id) || null}
+                    onChange={handleAssigneeChange}
+                    renderInput={(params) => <TextField {...params} label="Assignee" margin="normal" fullWidth />}
+                  />
                 </FormControl>
               </Grid>
               <Grid item xs={12} sm={6}>
                 <FormControl fullWidth>
                   <InputLabel>Crew</InputLabel>
                   <Select
-                    value={formData.crew_id}
+                    value={formData.crew_id || ''}
                     label="Crew"
-                    onChange={(e) => setFormData({ ...formData, crew_id: e.target.value })}
+                    onChange={(e) => handleFormChange(e as SelectChangeEvent<string>, 'crew_id' as keyof UITask)}
                   >
                     <MenuItem value="">No Crew</MenuItem>
                     {crews.map((crew) => (
@@ -1031,7 +788,7 @@ export const TaskManagement: React.FC = () => {
                   onChange={(e) => {
                     console.log('Start time changed to:', e.target.value);
                     const dateValue = e.target.value ? new Date(e.target.value).toISOString() : '';
-                    setFormData({ ...formData, start_time: dateValue });
+                    handleFormChange(e, 'start_time');
                   }}
                 />
               </Grid>
@@ -1045,7 +802,7 @@ export const TaskManagement: React.FC = () => {
                   onChange={(e) => {
                     console.log('End time changed to:', e.target.value);
                     const dateValue = e.target.value ? new Date(e.target.value).toISOString() : '';
-                    setFormData({ ...formData, end_time: dateValue });
+                    handleFormChange(e, 'end_time');
                   }}
                 />
               </Grid>
@@ -1055,7 +812,7 @@ export const TaskManagement: React.FC = () => {
                   <Select
                     value={formData.festival_id}
                     label="Festival"
-                    onChange={(e) => setFormData({ ...formData, festival_id: e.target.value })}
+                    onChange={(e) => handleFormChange(e, 'festival_id')}
                   >
                     {availableFestivals.map((festival) => (
                       <MenuItem key={festival.id} value={festival.id}>
@@ -1098,18 +855,13 @@ export const TaskManagement: React.FC = () => {
                   </Typography>
                   <FormControl fullWidth sx={{ mt: 2 }}>
                     <InputLabel>Assign To</InputLabel>
-                    <Select
-                      value={selectedAssignee}
-                      label="Assign To"
-                      onChange={(e) => setSelectedAssignee(e.target.value)}
-                    >
-                      <MenuItem value="">Not Assigned</MenuItem>
-                      {volunteers.map((volunteer) => (
-                        <MenuItem key={volunteer.id} value={volunteer.id}>
-                          {volunteer.full_name} {volunteer.crew_name ? `(${volunteer.crew_name})` : ''}
-                        </MenuItem>
-                      ))}
-                    </Select>
+                    <Autocomplete
+                      options={volunteers}
+                      getOptionLabel={(option) => option.profiles?.full_name || 'Unknown'}
+                      value={volunteers.find(v => v.id === selectedAssignee) || null}
+                      onChange={(event, newValue) => setSelectedAssignee(newValue?.id || '')}
+                      renderInput={(params) => <TextField {...params} label="Assign To" margin="normal" fullWidth />}
+                    />
                   </FormControl>
                 </>
               )}

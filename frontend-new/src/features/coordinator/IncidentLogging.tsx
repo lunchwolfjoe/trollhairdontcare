@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   Box,
@@ -28,25 +28,13 @@ import {
   Delete as DeleteIcon,
   Send as SendIcon,
   Refresh as RefreshIcon,
+  FilterList as FilterListIcon,
 } from '@mui/icons-material';
 import { supabase } from '../../lib/supabaseClient';
 import { festivalService } from '../../lib/services';
-import { Festival } from '../../lib/types/models';
-
-interface Incident {
-  id: string;
-  festival_id: string;
-  title: string;
-  description: string;
-  incident_type: string;
-  severity: 'low' | 'medium' | 'high' | 'critical';
-  status: 'open' | 'investigating' | 'resolved' | 'closed';
-  location: string;
-  reported_by: string;
-  reported_at: string;
-  resolved_at?: string;
-  resolution_notes?: string;
-}
+import { Festival, Incident } from '../../lib/types/models';
+import { Database } from '../../lib/types/supabase';
+import { useAuth } from '../../hooks/useAuth';
 
 // Mock data for development
 const mockIncidents: Incident[] = [
@@ -126,6 +114,7 @@ const IncidentLogging: React.FC = () => {
   // New state for festival awareness
   const [availableFestivals, setAvailableFestivals] = useState<Festival[]>([]);
   const [currentFestival, setCurrentFestival] = useState<Festival | null>(null);
+  const { user } = useAuth();
 
   useEffect(() => {
     const fetchFestivals = async () => {
