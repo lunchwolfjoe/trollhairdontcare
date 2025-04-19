@@ -1,9 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Initialize the Supabase client with the URL and anon key
-const supabaseUrl = "https://ysljpqtpbpugekhrdocq.supabase.co";
-// FORCE the correct API key - the exact one known to work
-const correctKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlzbGpwcXRwYnB1Z2VraHJkb2NxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDMzOTYxMTQsImV4cCI6MjA1ODk3MjExNH0.Vm9ur1yoEIr_4Dc1IrDax5M_-5qASydr6inbf4VhP5c";
+// Initialize the Supabase client with the URL and anon key from environment variables
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+// Use the correct API key from environment variables
+const correctKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 // Enhanced logging of configuration
 console.log('Supabase Config (FORCE_JSON_HEADER):', {
@@ -11,19 +11,12 @@ console.log('Supabase Config (FORCE_JSON_HEADER):', {
   keyPrefix: correctKey.substring(0, 10) + '...',
 });
 
-// Detect cached token in localStorage for debugging
-const localToken = localStorage.getItem('supabase_auth_token');
-if (localToken) {
-  console.log('Found localStorage token:', localToken.substring(0, 15) + '...');
-} else {
-  console.log('No localStorage token found');
-}
-
 // Override fetch to ensure correct headers
 const originalFetch = window.fetch;
 window.fetch = async function(url, options = {}) {
   let finalOptions = { ...options };
-  const isSupabaseRequest = url.toString().includes('supabase.co');
+  // Check if this is a Supabase request based on the URL
+  const isSupabaseRequest = url.toString().includes(supabaseUrl);
   
   if (isSupabaseRequest) {
     // Get the current auth token from localStorage
