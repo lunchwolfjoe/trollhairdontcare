@@ -1,20 +1,16 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
-// Initialize with environment variables
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
-const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+// Configuration
+const SUPABASE_URL = "https://ysljpqtpbpugekhrdocq.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlzbGpwcXRwYnB1Z2VraHJkb2NxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDMzOTYxMTQsImV4cCI6MjA1ODk3MjExNH0.Vm9ur1yoEIr_4Dc1IrDax5M_-5qASydr6inbf4VhP5c";
 
-// Log configuration info
-console.log('Auth Context - Supabase Config:', {
-  url: supabaseUrl,
-  key: supabaseKey ? `${supabaseKey.substring(0, 10)}...` : 'missing',
-});
+console.log('Auth context initialized with URL:', SUPABASE_URL);
 
-// Create client - do NOT use any custom options here to avoid conflicts
-const supabase = createClient(supabaseUrl, supabaseKey);
+// Create a basic Supabase client for data operations
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// User type definition
+// User type 
 type User = {
   id: string;
   email: string;
@@ -30,19 +26,14 @@ type SimpleAuthContextType = {
   error: string | null;
   authenticated: boolean;
   activeRole: string | null;
-  sessionToken: string | null;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, userData: { full_name: string }) => Promise<void>;
   signOut: () => Promise<void>;
   mockSignIn: (role: string) => void;
-  mockSignInAdmin: () => void;
-  hasRole: (role: string) => boolean;
-  setActiveRole: (role: string) => void;
   getAuthHeaders: () => Record<string, string>;
-  forceRefresh: () => Promise<boolean>;
 };
 
-// Create the context
+// Create context
 const SimpleAuthContext = createContext<SimpleAuthContextType | undefined>(undefined);
 
 // Provider component
@@ -51,268 +42,200 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeRole, setActiveRole] = useState<string | null>(null);
-  const [sessionToken, setSessionToken] = useState<string | null>(null);
-  const [initialized, setInitialized] = useState(false);
+  const [token, setToken] = useState<string | null>(null);
 
-  // Helper function to get authentication headers
+  // Get headers for authenticated requests
   const getAuthHeaders = () => {
     const headers: Record<string, string> = {
-      'apikey': supabaseKey,
+      'apikey': SUPABASE_KEY,
       'Content-Type': 'application/json'
     };
     
-    if (sessionToken) {
-      headers['Authorization'] = `Bearer ${sessionToken}`;
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
     }
     
     return headers;
   };
-
-  // Force refresh function - external way to completely refresh auth state
-  const forceRefresh = async (): Promise<boolean> => {
+  
+  // Direct API call to get user data with a token
+  const fetchUserWithToken = async (authToken: string) => {
     try {
-      // Clear session token to ensure we get a fresh one
-      localStorage.removeItem('supabase_auth_token');
-      
-      const { data, error } = await supabase.auth.refreshSession();
-      
-      if (error) {
-        console.error("Session refresh failed:", error);
-        setUser(null);
-        setActiveRole(null);
-        setSessionToken(null);
-        setError(error.message);
-        return false;
-      }
-
-      if (!data.session) {
-        return false;
-      }
-
-      // Set session token
-      const token = data.session.access_token;
-      localStorage.setItem('supabase_auth_token', token);
-      setSessionToken(token);
-
-      // Get user data with the new token
-      await fetchUserData(token);
-      return true;
-    } catch (e: any) {
-      console.error("Error in forceRefresh:", e);
-      setError(e.message);
-      return false;
-    }
-  };
-
-  // Function to fetch user data and roles
-  const fetchUserData = async (token: string) => {
-    try {
-      // Get user data
-      const { data: userData, error: userError } = await supabase.auth.getUser(token);
-      
-      if (userError || !userData?.user) {
-        throw userError || new Error("Failed to get user data");
-      }
-      
-      // Get user roles
-      const { data: rolesData, error: rolesError } = await supabase
-        .from('user_roles')
-        .select('role_id, roles(name)')
-        .eq('user_id', userData.user.id);
-      
-      if (rolesError) {
-        console.warn("Error fetching roles:", rolesError);
-      }
-      
-      // Extract roles or default to volunteer
-      const roles = (rolesData || []).map((r: any) => r.roles?.name || 'volunteer');
-      if (roles.length === 0) roles.push('volunteer');
-      
-      // Set user data
-      setUser({
-        id: userData.user.id,
-        email: userData.user.email || '',
-        full_name: userData.user.user_metadata?.full_name,
-        roles: roles,
-        avatar_url: userData.user.user_metadata?.avatar_url,
+      // Call auth API to get user data
+      const userResponse = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+        method: 'GET',
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json'
+        }
       });
       
-      // Set active role - prefer admin if available
+      if (!userResponse.ok) {
+        throw new Error(`Failed to get user: ${userResponse.status}`);
+      }
+      
+      const userData = await userResponse.json();
+      
+      // Get user roles with a simple query
+      const rolesResponse = await fetch(
+        `${SUPABASE_URL}/rest/v1/user_roles?user_id=eq.${userData.id}&select=role_id,roles(name)`,
+        {
+          method: 'GET',
+          headers: {
+            'apikey': SUPABASE_KEY,
+            'Authorization': `Bearer ${authToken}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      
+      if (!rolesResponse.ok) {
+        console.warn('Failed to fetch roles, using default role');
+        
+        // Set user with default role
+        const newUser = {
+          id: userData.id,
+          email: userData.email || '',
+          full_name: userData.user_metadata?.full_name,
+          roles: ['volunteer'],
+          avatar_url: userData.user_metadata?.avatar_url,
+        };
+        
+        setUser(newUser);
+        setActiveRole('volunteer');
+        return newUser;
+      }
+      
+      const rolesData = await rolesResponse.json();
+      
+      // Extract roles
+      const roles = rolesData.length > 0 
+        ? rolesData.map((r: any) => r.roles?.name || 'volunteer')
+        : ['volunteer'];
+      
+      // Create user object
+      const newUser = {
+        id: userData.id,
+        email: userData.email || '',
+        full_name: userData.user_metadata?.full_name,
+        roles: roles,
+        avatar_url: userData.user_metadata?.avatar_url,
+      };
+      
+      // Update state
+      setUser(newUser);
       setActiveRole(roles.includes('admin') ? 'admin' : roles[0]);
       
-      return true;
-    } catch (e: any) {
-      console.error("Error fetching user data:", e);
-      setUser(null);
-      setActiveRole(null);
-      return false;
+      return newUser;
+    } catch (err) {
+      console.error('Error fetching user:', err);
+      return null;
     }
   };
 
-  // Initialize auth state
+  // Initialize auth from localStorage on mount
   useEffect(() => {
-    if (initialized) return;
-    
     const initAuth = async () => {
       setLoading(true);
-      setError(null);
       
       try {
-        // Try to get session token from localStorage first
-        const storedToken = localStorage.getItem('supabase_auth_token');
+        // Try to get stored token
+        const storedToken = localStorage.getItem('auth_token');
         
-        // Get session from Supabase
-        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-        
-        if (sessionError) {
-          throw sessionError;
-        }
-        
-        // If we have a session, use it
-        if (sessionData?.session) {
-          const token = sessionData.session.access_token;
-          
-          // Store token in localStorage and state
-          localStorage.setItem('supabase_auth_token', token);
-          setSessionToken(token);
-          
-          // Fetch user data with token
-          await fetchUserData(token);
-        } 
-        // Try using stored token if available
-        else if (storedToken) {
-          setSessionToken(storedToken);
-          const success = await fetchUserData(storedToken);
-          
-          // If failed with stored token, clear it
-          if (!success) {
-            localStorage.removeItem('supabase_auth_token');
-            setSessionToken(null);
-          }
-        }
-        // No session or token
-        else {
+        if (!storedToken) {
+          // No token found
           setUser(null);
           setActiveRole(null);
-          setSessionToken(null);
+          setToken(null);
+          setLoading(false);
+          return;
         }
-      } catch (e: any) {
-        console.error("Error initializing auth:", e);
-        setError(e.message);
+        
+        // Validate token by fetching user
+        setToken(storedToken);
+        const userData = await fetchUserWithToken(storedToken);
+        
+        if (!userData) {
+          // Invalid token
+          localStorage.removeItem('auth_token');
+          setUser(null);
+          setActiveRole(null);
+          setToken(null);
+        }
+      } catch (err: any) {
+        console.error('Auth initialization error:', err);
+        setError(err.message);
+        
+        // Clear invalid auth state
+        localStorage.removeItem('auth_token');
         setUser(null);
         setActiveRole(null);
-        setSessionToken(null);
+        setToken(null);
       } finally {
         setLoading(false);
-        setInitialized(true);
       }
     };
     
     initAuth();
-  }, [initialized]);
-  
-  // Define auth event listener without using onAuthStateChange
-  // This avoids the deadlock issue documented in Supabase issues
-  useEffect(() => {
-    if (!initialized) return;
-    
-    const handleAuthChange = (event: any) => {
-      if (event === 'SIGNED_IN') {
-        // Instead of doing auth work in the callback (which can cause deadlocks),
-        // simply rerun our initialization logic
-        setInitialized(false);
-      } else if (event === 'SIGNED_OUT') {
-        setUser(null);
-        setActiveRole(null);
-        setSessionToken(null);
-        localStorage.removeItem('supabase_auth_token');
-      }
-    };
-    
-    // Set up manually triggered auth listener
-    const setupListener = async () => {
-      try {
-        const { data } = await supabase.auth.onAuthStateChange((event) => {
-          console.log('Auth event:', event);
-          handleAuthChange(event);
-        });
-        return data.subscription.unsubscribe;
-      } catch (e) {
-        console.error('Error setting up auth listener:', e);
-        return () => {};
-      }
-    };
-    
-    const unsubscribe = setupListener();
-    return () => {
-      // Clean up listener
-      unsubscribe.then(fn => fn());
-    };
-  }, [initialized]);
+  }, []);
 
-  // Mock sign in for testing
-  const mockSignIn = (role: string) => {
-    console.log("Using mock sign in with role:", role);
-    
-    // For admin users, give access to all roles
-    const roles = role === 'admin' ? ['admin', 'coordinator', 'volunteer'] : [role];
-    
-    setUser({
-      id: 'mock-user-id',
-      email: 'mock@example.com',
-      full_name: 'Mock User',
-      roles: roles,
-    });
-    
-    setActiveRole(role);
-    setLoading(false);
-    setError(null);
-    
-    // Use API key as token for mock users
-    const token = supabaseKey;
-    setSessionToken(token);
-    localStorage.setItem('supabase_auth_token', token);
-  };
-
-  // Sign in function
+  // Sign in function using direct API call
   const signIn = async (email: string, password: string) => {
     setLoading(true);
     setError(null);
     
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password
+      // Call auth API directly
+      const response = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+        method: 'POST',
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ email, password })
       });
       
-      if (error) {
-        throw error;
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error_description || data.error || 'Authentication failed');
       }
       
-      if (!data.session) {
-        throw new Error("No session returned from authentication server");
+      // Get the access token
+      const accessToken = data.access_token;
+      
+      if (!accessToken) {
+        throw new Error('No access token returned');
       }
       
-      // We don't need to do anything else here
-      // The auth state change listener will trigger and handle the rest
-    } catch (e: any) {
-      console.error("Sign in error:", e);
-      setError(e.message);
+      // Store token
+      localStorage.setItem('auth_token', accessToken);
+      setToken(accessToken);
+      
+      // Get user details
+      await fetchUserWithToken(accessToken);
+    } catch (err: any) {
+      console.error('Sign in error:', err);
+      setError(err.message);
+      
+      // Clear any partial auth state
+      localStorage.removeItem('auth_token');
       setUser(null);
       setActiveRole(null);
-      setSessionToken(null);
+      setToken(null);
     } finally {
       setLoading(false);
     }
   };
 
-  // Sign up function
+  // Sign up function - we'll use Supabase client for this since it's less critical
   const signUp = async (email: string, password: string, userData: { full_name: string }) => {
     setLoading(true);
     setError(null);
     
     try {
-      const { data, error } = await supabase.auth.signUp({
+      const { error } = await supabase.auth.signUp({
         email,
         password,
         options: {
@@ -325,11 +248,9 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (error) {
         throw error;
       }
-      
-      console.log("Sign up successful, waiting for email verification");
-    } catch (e: any) {
-      console.error("Sign up error:", e);
-      setError(e.message);
+    } catch (err: any) {
+      console.error('Sign up error:', err);
+      setError(err.message);
     } finally {
       setLoading(false);
     }
@@ -341,25 +262,53 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setError(null);
     
     try {
-      const { error } = await supabase.auth.signOut();
-      
-      if (error) {
-        throw error;
-      }
-      
-      // We'll let the auth change listener handle the state updates
-    } catch (e: any) {
-      console.error("Sign out error:", e);
-      setError(e.message);
-      
-      // Force clean state on error
+      // Clear token and user state
+      localStorage.removeItem('auth_token');
       setUser(null);
       setActiveRole(null);
-      setSessionToken(null);
-      localStorage.removeItem('supabase_auth_token');
+      setToken(null);
+      
+      // Also try to sign out via API
+      await fetch(`${SUPABASE_URL}/auth/v1/logout`, {
+        method: 'POST',
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+    } catch (err: any) {
+      console.error('Sign out error:', err);
+      setError(err.message);
+      
+      // Force logout anyway
+      localStorage.removeItem('auth_token');
+      setUser(null);
+      setActiveRole(null);
+      setToken(null);
     } finally {
       setLoading(false);
     }
+  };
+
+  // Mock sign in for development/testing
+  const mockSignIn = (role: string) => {
+    // Create a mock user
+    const mockUser = {
+      id: 'mock-user-id',
+      email: 'mock@example.com',
+      full_name: 'Mock User',
+      roles: role === 'admin' ? ['admin', 'coordinator', 'volunteer'] : [role],
+    };
+    
+    // Set mock state
+    setUser(mockUser);
+    setActiveRole(role);
+    setToken(SUPABASE_KEY); // Use anon key as token
+    localStorage.setItem('auth_token', SUPABASE_KEY);
+    
+    setLoading(false);
+    setError(null);
   };
 
   // Context value
@@ -367,30 +316,13 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     user,
     loading,
     error,
-    authenticated: !!user && !!sessionToken,
+    authenticated: !!user && !!token,
     activeRole,
-    sessionToken,
     signIn,
     signUp,
     signOut,
     mockSignIn,
-    mockSignInAdmin: () => mockSignIn('admin'),
-    forceRefresh,
     getAuthHeaders,
-    
-    // Role helper functions
-    hasRole: (role: string) => {
-      if (!user) return false;
-      if (user.roles.includes('admin')) return true;
-      return user.roles.includes(role);
-    },
-    
-    // Switch active role
-    setActiveRole: (role: string) => {
-      if (!user) return;
-      if (!user.roles.includes(role) && !user.roles.includes('admin')) return;
-      setActiveRole(role);
-    }
   };
 
   return (

@@ -3,17 +3,19 @@ import { supabase } from '../lib/supabaseClient';
 import { Box, Typography, Paper, List, ListItem, ListItemText, Button, Divider, Alert } from '@mui/material';
 import { useSimpleAuth } from '../contexts/SimpleAuthContext';
 
+const SUPABASE_URL = "https://ysljpqtpbpugekhrdocq.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlzbGpwcXRwYnB1Z2VraHJkb2NxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDMzOTYxMTQsImV4cCI6MjA1ODk3MjExNH0.Vm9ur1yoEIr_4Dc1IrDax5M_-5qASydr6inbf4VhP5c";
+
 const SupabaseDebugger: React.FC = () => {
   const [sessionInfo, setSessionInfo] = useState<any>(null);
   const [envInfo, setEnvInfo] = useState<any>({});
   const [testResult, setTestResult] = useState<any>(null);
   const [visible, setVisible] = useState(false);
   const [userRolesResult, setUserRolesResult] = useState<any>(null);
-  const [troubleshootResults, setTroubleshootResults] = useState<any>(null);
-  const [troubleshootLoading, setTroubleshootLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [directTestResult, setDirectTestResult] = useState<any>(null);
   
-  const { troubleshootAuth } = useSimpleAuth();
+  const { authenticated, user, signOut } = useSimpleAuth();
 
   useEffect(() => {
     // Log environment variables
@@ -28,117 +30,110 @@ const SupabaseDebugger: React.FC = () => {
     console.log('Environment Variables:', envData);
     setEnvInfo(envData);
 
-    // Check Supabase session
-    const checkSession = async () => {
-      try {
-        const { data, error } = await supabase.auth.getSession();
-        console.log('Supabase Session Check:', { data, error });
-        setSessionInfo({ data, error });
-        
-        // If we have a user, test user_roles query
-        if (data?.session?.user?.id) {
-          const userId = data.session.user.id;
-          try {
-            const { data: rolesData, error: rolesError } = await supabase
-              .from('user_roles')
-              .select('role_id, roles(name)')
-              .eq('user_id', userId);
-            
-            console.log('User roles query:', { rolesData, rolesError });
-            setUserRolesResult({ data: rolesData, error: rolesError });
-          } catch (rolesErr) {
-            console.error('Error querying user roles:', rolesErr);
-            setUserRolesResult({ error: rolesErr });
-          }
-        }
-      } catch (err) {
-        console.error('Session check error:', err);
-        setSessionInfo({ error: err });
-      }
-    };
-
     // Run basic test query
     const testQuery = async () => {
       try {
-        const { data, error, status } = await supabase
-          .from('festivals')
-          .select('*')
-          .limit(1);
-          
-        console.log('Test query result:', { data, error, status });
-        setTestResult({ data, error, status });
+        const response = await fetch(`${SUPABASE_URL}/rest/v1/festivals?select=*&limit=1`, {
+          method: 'GET',
+          headers: {
+            'apikey': SUPABASE_KEY,
+            'Authorization': `Bearer ${SUPABASE_KEY}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        const data = await response.json();
+        
+        setTestResult({ 
+          ok: response.ok,
+          status: response.status,
+          data: data
+        });
       } catch (err) {
         console.error('Test query error:', err);
         setTestResult({ error: err });
       }
     };
 
-    checkSession();
     testQuery();
   }, []);
 
   const toggleVisibility = () => setVisible(!visible);
   
-  const runForcedTests = async () => {
+  // Direct test of API connection
+  const runDirectTest = async () => {
     try {
-      // Direct test using hardcoded API key
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL || supabase.supabaseUrl}/rest/v1/festivals?select=*&limit=1`,
-        {
-          method: 'GET',
-          headers: {
-            'apikey': supabase.supabaseKey || import.meta.env.VITE_SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${supabase.supabaseKey || import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json'
-          }
+      setDirectTestResult({ loading: true });
+      
+      // Test direct API access
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/festivals?select=*&limit=1`, {
+        method: 'GET',
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${SUPABASE_KEY}`,
+          'Content-Type': 'application/json'
         }
-      );
+      });
+      
+      if (!response.ok) {
+        setDirectTestResult({
+          ok: false,
+          status: response.status,
+          statusText: response.statusText
+        });
+        alert(`API test failed: ${response.status} ${response.statusText}`);
+        return;
+      }
       
       const data = await response.json();
-      alert(`Direct API test: ${response.ok ? 'SUCCESS' : 'FAILED'}\nStatus: ${response.status}\nData: ${JSON.stringify(data).substring(0, 100)}...`);
+      setDirectTestResult({
+        ok: true,
+        status: response.status,
+        dataCount: Array.isArray(data) ? data.length : 'not array',
+        data: data
+      });
+      
+      alert(`API test successful! Retrieved ${Array.isArray(data) ? data.length : 0} records.`);
     } catch (err) {
-      alert(`Direct API test FAILED with exception: ${err.message}`);
+      console.error('Direct API test error:', err);
+      setDirectTestResult({ error: err.message });
+      alert(`API test failed with error: ${err.message}`);
     }
   };
   
-  const runTroubleshoot = async () => {
-    setTroubleshootLoading(true);
+  // Check auth token
+  const checkAuthToken = async () => {
     try {
-      const results = await troubleshootAuth();
-      setTroubleshootResults(results);
-    } catch (err) {
-      console.error("Error running troubleshoot:", err);
-      alert(`Troubleshooting failed: ${err.message}`);
-    } finally {
-      setTroubleshootLoading(false);
-    }
-  };
-  
-  const forceRefreshSession = async () => {
-    setIsRefreshing(true);
-    try {
-      // First clear any stored token to force a clean refresh
-      localStorage.removeItem('supabase_auth_token');
+      setIsRefreshing(true);
       
-      // Force refresh the session
-      const { data, error } = await supabase.auth.refreshSession();
+      // Get token from localStorage
+      const token = localStorage.getItem('auth_token');
       
-      if (error) {
-        console.error("Session refresh failed:", error);
-        alert(`Session refresh failed: ${error.message}`);
-        // Try a clean logout
-        await supabase.auth.signOut();
-      } else if (data?.session) {
-        // Store the refreshed token
-        localStorage.setItem('supabase_auth_token', data.session.access_token);
-        alert("Session refreshed successfully. Reloading page...");
-        window.location.reload();
-      } else {
-        alert("No session found. Please log in again.");
+      if (!token) {
+        alert('No auth token found in localStorage');
+        return;
       }
+      
+      // Test token with API
+      const response = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+        method: 'GET',
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        alert(`Auth token test failed: ${response.status} ${response.statusText}`);
+        return;
+      }
+      
+      const userData = await response.json();
+      alert(`Auth token is valid! User ID: ${userData.id}`);
     } catch (err) {
-      console.error("Error during session refresh:", err);
-      alert(`Error refreshing session: ${err.message}`);
+      console.error('Token test error:', err);
+      alert(`Token test failed with error: ${err.message}`);
     } finally {
       setIsRefreshing(false);
     }
@@ -146,17 +141,26 @@ const SupabaseDebugger: React.FC = () => {
   
   const forceCleanLogout = async () => {
     try {
-      // Clear local storage
+      // First sign out from auth context
+      await signOut();
+      
+      // Then clear any tokens that might be in localStorage
+      localStorage.removeItem('auth_token');
       localStorage.removeItem('supabase_auth_token');
       
-      // Call signOut to clear server-side session
-      await supabase.auth.signOut();
+      // Also try to clear any other auth-related keys
+      const localStorageKeys = Object.keys(localStorage);
+      localStorageKeys.forEach(key => {
+        if (key.includes('auth') || key.includes('supabase')) {
+          localStorage.removeItem(key);
+        }
+      });
       
-      alert("Logged out successfully. Reloading page...");
+      alert("All auth data cleared. Reloading page...");
       window.location.href = '/login';
     } catch (err) {
-      console.error("Error during logout:", err);
-      alert(`Error during logout: ${err.message}`);
+      console.error('Force logout error:', err);
+      alert(`Error during force logout: ${err.message}`);
     }
   };
 
@@ -203,83 +207,90 @@ const SupabaseDebugger: React.FC = () => {
           </Button>
         </Box>
 
+        <Alert severity={authenticated ? "success" : "error"} sx={{ mb: 2 }}>
+          Auth Status: {authenticated ? "Authenticated ✓" : "Not Authenticated ✗"}
+        </Alert>
+
         <Box sx={{ display: 'flex', mb: 2, gap: 1 }}>
           <Button 
             variant="contained" 
             color="primary"
-            onClick={runForcedTests}
+            onClick={runDirectTest}
             sx={{ flexGrow: 1 }}
           >
-            Run API Test
+            Test API
           </Button>
           
           <Button 
             variant="contained" 
             color="secondary"
-            onClick={runTroubleshoot}
-            disabled={troubleshootLoading}
-            sx={{ flexGrow: 1 }}
-          >
-            Troubleshoot Auth
-          </Button>
-        </Box>
-        
-        <Box sx={{ display: 'flex', mb: 2, gap: 1 }}>
-          <Button 
-            variant="contained" 
-            color="success"
-            onClick={forceRefreshSession}
+            onClick={checkAuthToken}
             disabled={isRefreshing}
             sx={{ flexGrow: 1 }}
           >
-            Force Refresh Session
+            Check Token
           </Button>
-          
+        </Box>
+        
+        <Box sx={{ display: 'flex', mb: 3, gap: 1 }}>
           <Button 
             variant="contained" 
             color="error"
             onClick={forceCleanLogout}
             sx={{ flexGrow: 1 }}
           >
-            Clean Logout
+            Force Logout
           </Button>
         </Box>
         
-        {troubleshootResults && (
-          <>
-            <Alert severity={
-              troubleshootResults.tokenTest?.apiKey?.ok ? "success" : "error"
-            } sx={{ mb: 2 }}>
-              API access: {troubleshootResults.tokenTest?.apiKey?.ok ? "OK" : "FAILED"} - 
-              Session: {troubleshootResults.sessionCheck?.hasSession ? "ACTIVE" : "NONE"} - 
-              User: {troubleshootResults.userQuery?.hasUser ? "FOUND" : "NONE"}
-            </Alert>
-            
-            <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1 }}>
-              Troubleshooting Results:
+        {directTestResult && (
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
+              API Test Result:
             </Typography>
-            
             <Box sx={{ 
-              maxHeight: '100px', 
-              overflow: 'auto',
-              mb: 2,
-              p: 1,
+              p: 1, 
+              backgroundColor: directTestResult.ok ? 'rgba(0,255,0,0.1)' : 'rgba(255,0,0,0.1)',
+              borderRadius: 1,
+              fontSize: '0.8rem',
               fontFamily: 'monospace',
-              fontSize: '0.7rem',
-              backgroundColor: 'rgba(0,0,0,0.05)',
-              borderRadius: 1
+              maxHeight: '80px',
+              overflow: 'auto'
             }}>
-              {JSON.stringify(troubleshootResults, null, 2)}
+              {JSON.stringify(directTestResult, null, 2)}
             </Box>
-            
-            <Typography variant="caption">
-              Full results in console
-            </Typography>
-            
-            <Divider sx={{ my: 1 }} />
-          </>
+          </Box>
         )}
 
+        <Typography variant="subtitle1">Current User</Typography>
+        <List dense>
+          {user ? (
+            <>
+              <ListItem>
+                <ListItemText primary="ID" secondary={user.id} />
+              </ListItem>
+              <ListItem>
+                <ListItemText primary="Email" secondary={user.email} />
+              </ListItem>
+              <ListItem>
+                <ListItemText primary="Name" secondary={user.full_name || 'N/A'} />
+              </ListItem>
+              <ListItem>
+                <ListItemText 
+                  primary="Roles" 
+                  secondary={user.roles?.join(', ') || 'None'} 
+                />
+              </ListItem>
+            </>
+          ) : (
+            <ListItem>
+              <ListItemText secondary="No user authenticated" />
+            </ListItem>
+          )}
+        </List>
+
+        <Divider sx={{ my: 1 }} />
+        
         <Typography variant="subtitle1">Environment</Typography>
         <List dense>
           {Object.entries(envInfo).map(([key, value]) => (
@@ -293,80 +304,6 @@ const SupabaseDebugger: React.FC = () => {
               />
             </ListItem>
           ))}
-        </List>
-
-        <Divider sx={{ my: 1 }} />
-        
-        <Typography variant="subtitle1">Session</Typography>
-        <List dense>
-          <ListItem>
-            <ListItemText 
-              primary="Status" 
-              secondary={
-                sessionInfo?.data?.session 
-                  ? "Active ✓" 
-                  : sessionInfo?.error 
-                    ? "Error ✗" 
-                    : "Not authenticated ✗"
-              }
-              secondaryTypographyProps={{ 
-                color: sessionInfo?.data?.session ? 'success.main' : 'error'
-              }}
-            />
-          </ListItem>
-          {sessionInfo?.data?.session?.user && (
-            <ListItem>
-              <ListItemText 
-                primary="User ID" 
-                secondary={sessionInfo.data.session.user.id}
-              />
-            </ListItem>
-          )}
-          {sessionInfo?.data?.session?.access_token && (
-            <ListItem>
-              <ListItemText 
-                primary="Token (preview)" 
-                secondary={`${sessionInfo.data.session.access_token.substring(0, 15)}...`}
-              />
-            </ListItem>
-          )}
-          {sessionInfo?.error && (
-            <ListItem>
-              <ListItemText 
-                primary="Error" 
-                secondary={sessionInfo.error.message || JSON.stringify(sessionInfo.error)}
-                secondaryTypographyProps={{ color: 'error' }}
-              />
-            </ListItem>
-          )}
-        </List>
-
-        <Divider sx={{ my: 1 }} />
-        
-        <Typography variant="subtitle1">User Roles</Typography>
-        <List dense>
-          {userRolesResult?.data && userRolesResult.data.length > 0 ? (
-            userRolesResult.data.map((role: any, index: number) => (
-              <ListItem key={index}>
-                <ListItemText 
-                  primary={`Role ${index + 1}`} 
-                  secondary={role.roles?.name || role.role_id || 'Unknown role'}
-                />
-              </ListItem>
-            ))
-          ) : userRolesResult?.error ? (
-            <ListItem>
-              <ListItemText 
-                primary="Error fetching roles" 
-                secondary={userRolesResult.error.message || JSON.stringify(userRolesResult.error)}
-                secondaryTypographyProps={{ color: 'error' }}
-              />
-            </ListItem>
-          ) : (
-            <ListItem>
-              <ListItemText secondary="No roles found or not authenticated" />
-            </ListItem>
-          )}
         </List>
 
         <Divider sx={{ my: 1 }} />
@@ -397,7 +334,7 @@ const SupabaseDebugger: React.FC = () => {
             <ListItem>
               <ListItemText 
                 primary="Data Preview" 
-                secondary={`${testResult.data.length} records`}
+                secondary={`${Array.isArray(testResult.data) ? testResult.data.length : 0} records`}
               />
             </ListItem>
           )}
