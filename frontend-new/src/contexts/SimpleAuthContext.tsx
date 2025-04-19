@@ -257,39 +257,32 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       console.log("Auth state change:", event, "Session:", !!session);
       
       if (event === 'SIGNED_IN' && session) {
-        // Store session token
+        // Store session token FIRST - this is crucial
         setPersistedSessionToken(session.access_token);
         console.log("New session token stored:", session.access_token.substring(0, 15) + "...");
         
-        // Get user roles from profiles/user_roles
-        try {
-          const { data: userData } = await supabase.auth.getUser();
+        // Use the user data from the session directly instead of making another call
+        // IMPORTANT: Do not make Supabase calls inside onAuthStateChange to avoid deadlocks
+        // See: https://github.com/supabase/auth-js/issues/824
+        if (session.user) {
+          // Store user data to be processed outside this callback
+          const userData = session.user;
           
-          if (!userData?.user) {
-            setUser(null);
-            return;
-          }
-          
-          const { data: rolesData } = await supabase
-            .from('user_roles')
-            .select('role_id, roles(name)')
-            .eq('user_id', userData.user.id);
-            
-          const roles = rolesData?.map((r: any) => r.roles?.name || 'volunteer') || ['volunteer'];
-          
-          // Set authenticated user
+          // Set the user with the data we have now
           setUser({
-            id: userData.user.id,
-            email: userData.user.email || '',
-            full_name: userData.user.user_metadata?.full_name,
-            roles: roles,
-            avatar_url: userData.user.user_metadata?.avatar_url,
+            id: userData.id,
+            email: userData.email || '',
+            full_name: userData.user_metadata?.full_name,
+            roles: ['volunteer'], // Default role until we can fetch roles outside this callback
+            avatar_url: userData.user_metadata?.avatar_url,
           });
           
-          setActiveRole(roles.includes('admin') ? 'admin' : roles[0] || 'volunteer');
-        } catch (e) {
-          console.error("Error processing sign in:", e);
-          setUser(null);
+          setActiveRole('volunteer'); // Default until roles are fetched
+          
+          // Set a flag to fetch roles after this callback completes
+          window.setTimeout(() => {
+            fetchUserRoles(userData.id);
+          }, 0);
         }
       } else if (event === 'SIGNED_OUT') {
         setUser(null);
@@ -298,6 +291,37 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         console.log("Session token cleared on sign out");
       }
     });
+    
+    // Function to fetch roles outside the onAuthStateChange callback
+    const fetchUserRoles = async (userId: string) => {
+      try {
+        const { data: rolesData, error: rolesError } = await supabase
+          .from('user_roles')
+          .select('role_id, roles(name)')
+          .eq('user_id', userId);
+          
+        if (rolesError) {
+          console.error("Error fetching roles:", rolesError);
+          return;
+        }
+        
+        const roles = rolesData?.map((r: any) => r.roles?.name || 'volunteer') || ['volunteer'];
+        
+        // Update the user with the correct roles
+        setUser((prevUser) => {
+          if (!prevUser) return null;
+          return {
+            ...prevUser,
+            roles: roles
+          };
+        });
+        
+        setActiveRole(roles.includes('admin') ? 'admin' : roles[0] || 'volunteer');
+        console.log("User roles updated:", roles);
+      } catch (e) {
+        console.error("Error in fetchUserRoles:", e);
+      }
+    };
     
     return () => {
       subscription.unsubscribe();
