@@ -118,22 +118,46 @@ const Festivals = () => {
 
   const handleCreateFestival = async (festival: FestivalCreate) => {
     try {
+      // First, check if user is authenticated
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        throw new Error('Authentication required. Please log in to create festivals.');
+      }
+      
+      console.log('Creating festival with authenticated session');
+      
       const { data, error } = await supabase
         .from('festivals')
         .insert([festival])
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Festival creation error:', error);
+        throw error;
+      }
+      
+      console.log('Festival created successfully:', data);
       setFestivals([...festivals, data]);
       setShowForm(false);
     } catch (err) {
+      console.error('Festival creation failed:', err);
       throw new Error(err instanceof Error ? err.message : 'Failed to create festival');
     }
   };
 
   const handleUpdateFestival = async (festival: FestivalUpdate) => {
     try {
+      // First, check if user is authenticated
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        throw new Error('Authentication required. Please log in to update festivals.');
+      }
+      
+      console.log('Updating festival with authenticated session');
+      
       const { data, error } = await supabase
         .from('festivals')
         .update(festival)
@@ -141,25 +165,46 @@ const Festivals = () => {
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Festival update error:', error);
+        throw error;
+      }
+      
+      console.log('Festival updated successfully:', data);
       setFestivals(festivals.map(f => f.id === data.id ? data : f));
       setSelectedFestival(null);
     } catch (err) {
+      console.error('Festival update failed:', err);
       throw new Error(err instanceof Error ? err.message : 'Failed to update festival');
     }
   };
 
   const handleDeleteFestival = async (id: string) => {
     try {
+      // First, check if user is authenticated
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        throw new Error('Authentication required. Please log in to delete festivals.');
+      }
+      
+      console.log('Deleting festival with authenticated session');
+      
       const { error } = await supabase
         .from('festivals')
         .delete()
         .eq('id', id);
 
-      if (error) throw error;
+      if (error) {
+        console.error('Festival deletion error:', error);
+        throw error;
+      }
+      
+      console.log('Festival deleted successfully');
       setFestivals(festivals.filter(f => f.id !== id));
       setSelectedFestival(null);
     } catch (err) {
+      console.error('Festival deletion failed:', err);
       throw new Error(err instanceof Error ? err.message : 'Failed to delete festival');
     }
   };

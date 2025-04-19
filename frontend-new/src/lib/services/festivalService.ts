@@ -1,6 +1,6 @@
-import { ApiResponse, BaseService, PaginationParams, applyPagination, handleError } from './api';
+import { ApiResponse, handleError, PaginationParams } from './api';
 import { Festival } from '../types/models';
-import { PostgrestQueryBuilder } from '@supabase/postgrest-js';
+import { Database } from '../types/supabase';
 import { supabase } from '../supabaseClient';
 
 /**
@@ -13,49 +13,44 @@ export interface FestivalFilter {
   startDateTo?: string;
 }
 
+type FestivalInsert = Database['public']['Tables']['festivals']['Insert'];
+type FestivalUpdate = Database['public']['Tables']['festivals']['Update'];
+
 /**
  * Service for handling festival operations
  */
-export class FestivalService extends BaseService {
-  constructor() {
-    super('festivals');
-  }
+export class FestivalService {
+  private readonly tableName = 'festivals';
 
   /**
    * Get all festivals with optional filtering and pagination
    */
-  async getFestivals(
-    filter: FestivalFilter = {},
-    pagination: PaginationParams = {}
-  ): Promise<ApiResponse<Festival[]>> {
+  async getFestivals(filter?: FestivalFilter, pagination?: PaginationParams): Promise<ApiResponse<Festival[]>> {
     try {
       console.log('Starting festivals fetch with filter:', filter);
       
       // Use supabase directly instead of going through the query builder
-      let query = supabase.from('festivals').select('*');
+      let query = supabase.from('festivals').select('*') as any;
       
       // Apply filters
-      if (filter.status) {
+      if (filter?.status) {
         query = query.eq('status', filter.status);
       }
 
-      if (filter.search) {
+      if (filter?.search) {
         query = query.ilike('name', `%${filter.search}%`);
       }
 
-      if (filter.startDateFrom) {
+      if (filter?.startDateFrom) {
         query = query.gte('start_date', filter.startDateFrom);
       }
 
-      if (filter.startDateTo) {
+      if (filter?.startDateTo) {
         query = query.lte('start_date', filter.startDateTo);
       }
 
-      // Apply ordering
-      query = query.order('start_date', { ascending: false });
-
-      // Apply pagination
-      if (pagination.pageSize) {
+      // Manually apply pagination if needed
+      if (pagination?.pageSize) {
         const { page = 1, pageSize = 10 } = pagination;
         const start = (page - 1) * pageSize;
         const end = start + pageSize - 1;
@@ -65,9 +60,10 @@ export class FestivalService extends BaseService {
       console.log('Executing festivals query...');
       
       // Execute the query
-      const { data, error } = await query;
+      const { data, error } = await query.order('start_date', { ascending: false });
       
       if (error) {
+        console.error('Festival query error:', error);
         return {
           data: null,
           error: handleError(error)
@@ -75,18 +71,14 @@ export class FestivalService extends BaseService {
       }
       
       return {
-        data,
+        data: data || [],
         error: null
       };
     } catch (error) {
       console.error('Error in getFestivals:', error);
       return {
-        data: null,
-        error: {
-          status: 500,
-          message: 'Failed to fetch festivals',
-          details: error
-        }
+        data: [],
+        error: handleError(error)
       };
     }
   }
@@ -111,92 +103,136 @@ export class FestivalService extends BaseService {
    */
   async getFestivalById(id: string): Promise<ApiResponse<Festival>> {
     try {
-      const { data, error } = await supabase
-        .from('festivals')
+      const { data, error } = await supabase.from(this.tableName)
         .select('*')
         .eq('id', id)
         .single();
-      
       if (error) {
-        return {
-          data: null,
-          error: handleError(error)
-        };
+        return { data: null, error: handleError(error) };
       }
-      
-      return {
-        data,
-        error: null
-      };
+      return { data: data as Festival | null, error: null };
     } catch (error) {
-      return {
-        data: null,
-        error: handleError(error)
-      };
+      return { data: null, error: handleError(error) };
     }
   }
 
   /**
    * Create a new festival
    */
-  async createFestival(festivalData: Partial<Festival>): Promise<ApiResponse<Festival>> {
+  async createFestival(festivalInput: Partial<Festival>): Promise<ApiResponse<Festival>> {
     try {
-      const { data, error } = await supabase
-        .from('festivals')
-        .insert(festivalData)
-        .select('*')
-        .single();
+      console.log('Creating festival with input (will NOT send user_id explicitly):', festivalInput);
       
-      if (error) {
-        return {
-          data: null,
-          error: handleError(error)
+      // Prepare data WITHOUT the user_id. Let DB handle it via RLS/triggers.
+      const festivalData = {
+        name: festivalInput.name || 'Unnamed Festival',
+        start_date: festivalInput.start_date || new Date().toISOString().split('T')[0],
+        end_date: festivalInput.end_date || new Date().toISOString().split('T')[0],
+        description: festivalInput.description || '',
+        location: festivalInput.location || '',
+        status: festivalInput.status || 'planning',
+      };
+      
+      // First try to get the user session
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        console.error('No active session found. User must be authenticated to create festivals.');
+        return { 
+          data: null, 
+          error: { message: 'Authentication required. Please log in to create festivals.' }
         };
       }
       
-      return {
-        data,
-        error: null
-      };
+      // Try Supabase client first - this handles authentication automatically
+      try {
+        console.log('Attempting to create festival using Supabase client');
+        const { data, error } = await supabase
+          .from('festivals')
+          .insert([festivalData])
+          .select()
+          .single();
+        
+        if (error) {
+          console.error('Supabase client error:', error);
+          throw error;
+        }
+        
+        console.log('Festival created successfully via Supabase client:', data);
+        return { data, error: null };
+      } catch (supabaseError) {
+        console.error('Supabase client approach failed, trying direct API with auth token:', supabaseError);
+        
+        // Fall back to direct API call with proper authentication
+        const response = await fetch(`${supabase.supabaseUrl}/rest/v1/festivals`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': supabase.supabaseKey,
+            'Authorization': `Bearer ${session.access_token}`, // Use session token for auth
+            'Prefer': 'return=representation'
+          },
+          body: JSON.stringify(festivalData)
+        });
+        
+        console.log('Direct API response status:', response.status);
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('Direct API error:', errorText);
+          
+          try {
+            const errorJson = JSON.parse(errorText);
+            console.error('Parsed API error:', errorJson);
+            throw new Error(errorJson.message || `API error: ${response.status}`);
+          } catch(e) {
+            throw new Error(`API error: ${response.status} ${response.statusText} - ${errorText}`);
+          }
+        }
+        
+        const data = await response.json();
+        console.log('Festival created via direct API:', data);
+        return { data: data[0], error: null };
+      }
     } catch (error) {
-      return {
-        data: null,
-        error: handleError(error)
-      };
+      console.error('Festival creation exception:', error);
+      return { data: null, error: handleError(error) };
     }
   }
 
   /**
    * Update a festival
    */
-  async updateFestival(id: string, festivalData: Partial<Festival>): Promise<ApiResponse<Festival>> {
+  async updateFestival(id: string, festivalInput: Partial<Festival>): Promise<ApiResponse<Festival>> {
     try {
-      // Remove immutable fields
-      const { id: _, created_at, updated_at, ...updateData } = festivalData as any;
+      const festivalData: FestivalUpdate = {
+        name: festivalInput.name,
+        start_date: festivalInput.start_date,
+        end_date: festivalInput.end_date,
+        description: festivalInput.description ?? undefined,
+        location: festivalInput.location,
+        status: festivalInput.status,
+      };
       
+      // Filter out undefined values
+      Object.keys(festivalData).forEach(key => {
+        if (festivalData[key] === undefined) {
+          delete festivalData[key];
+        }
+      });
+
       const { data, error } = await supabase
-        .from('festivals')
-        .update(updateData)
+        .from(this.tableName)
+        .update(festivalData)
         .eq('id', id)
-        .select('*')
+        .select()
         .single();
-      
       if (error) {
-        return {
-          data: null,
-          error: handleError(error)
-        };
+        return { data: null, error: handleError(error) };
       }
-      
-      return {
-        data,
-        error: null
-      };
+      return { data: data as Festival | null, error: null };
     } catch (error) {
-      return {
-        data: null,
-        error: handleError(error)
-      };
+      return { data: null, error: handleError(error) };
     }
   }
 
@@ -215,27 +251,13 @@ export class FestivalService extends BaseService {
    */
   async deleteFestival(id: string): Promise<ApiResponse<null>> {
     try {
-      const { error } = await supabase
-        .from('festivals')
-        .delete()
-        .eq('id', id);
-      
+      const { error } = await supabase.from(this.tableName).delete().eq('id', id);
       if (error) {
-        return {
-          data: null,
-          error: handleError(error)
-        };
+        return { data: null, error: handleError(error) };
       }
-      
-      return {
-        data: null,
-        error: null
-      };
+      return { data: null, error: null };
     } catch (error) {
-      return {
-        data: null,
-        error: handleError(error)
-      };
+      return { data: null, error: handleError(error) };
     }
   }
 
@@ -245,25 +267,13 @@ export class FestivalService extends BaseService {
    */
   async getFestivalStats(id: string): Promise<ApiResponse<any>> {
     try {
-      const { data, error } = await supabase
-        .rpc('get_festival_stats', { festival_id: id });
-      
+      const { data, error } = await supabase.rpc('get_festival_stats', { festival_id: id });
       if (error) {
-        return {
-          data: null,
-          error: handleError(error)
-        };
+        return { data: null, error: handleError(error) };
       }
-      
-      return {
-        data,
-        error: null
-      };
+      return { data, error: null };
     } catch (error) {
-      return {
-        data: null,
-        error: handleError(error)
-      };
+      return { data: null, error: handleError(error) };
     }
   }
 }
