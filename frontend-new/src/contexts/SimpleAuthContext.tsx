@@ -163,31 +163,15 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setLoading(true);
       
       try {
-        // Try fetch with minimal request first
-        const testResponse = await fetch(`${supabaseUrl}/rest/v1/festivals?select=*&limit=1`, {
-          method: 'GET',
-          headers: {
-            'apikey': supabaseKey,
-            'Authorization': `Bearer ${supabaseKey}`,
-            'Content-Type': 'application/json'
-          }
+        // Try direct session refresh first to ensure we have the most recent session
+        const refreshResult = await supabase.auth.refreshSession();
+        console.log('Session refresh attempt:', {
+          success: !refreshResult.error,
+          hasSession: !!refreshResult.data?.session,
+          error: refreshResult.error?.message
         });
         
-        console.log('API Test Response:', {
-          status: testResponse.status, 
-          ok: testResponse.ok,
-          statusText: testResponse.statusText
-        });
-        
-        if (!testResponse.ok) {
-          console.error("API access test failed - auth operations will likely fail");
-          setError("API access error: " + testResponse.statusText);
-          setUser(null);
-          setLoading(false);
-          return;
-        }
-        
-        // Try to get existing session
+        // Get latest session state after refresh attempt
         const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
         
         if (sessionError) {
@@ -195,32 +179,37 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           setError("Authentication error: " + sessionError.message);
           setUser(null);
           setLoading(false);
+          localStorage.removeItem('supabase_auth_token');
           return;
         }
         
         if (sessionData?.session) {
-          // Store the session token
+          // Store the session token - ALWAYS UPDATE THIS FIRST
           setPersistedSessionToken(sessionData.session.access_token);
           console.log("Found existing session token:", sessionData.session.access_token.substring(0, 15) + "...");
           
           // We have a valid session - fetch user data
           console.log("Found existing session, getting user data");
-          const { data: userData, error: userError } = await supabase.auth.getUser();
+          const { data: userData, error: userError } = await supabase.auth.getUser(sessionData.session.access_token);
           
           if (userError || !userData?.user) {
             console.error("User data error:", userError);
             setError("User data error: " + (userError?.message || "No user found"));
             setUser(null);
+            localStorage.removeItem('supabase_auth_token');
           } else {
             // Get user roles from profiles/user_roles
             try {
-              const { data: rolesData } = await supabase
+              // Use the session token in the query to ensure it matches the authenticated user
+              const { data: rolesData, error: rolesError } = await supabase
                 .from('user_roles')
                 .select('role_id, roles(name)')
                 .eq('user_id', userData.user.id);
                 
+              if (rolesError) throw rolesError;
+                
               const roles = rolesData?.map((r: any) => r.roles?.name || 'volunteer') || ['volunteer'];
-              
+                
               // Set authenticated user
               setUser({
                 id: userData.user.id,
@@ -229,7 +218,7 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                 roles: roles,
                 avatar_url: userData.user.user_metadata?.avatar_url,
               });
-              
+                
               setActiveRole(roles.includes('admin') ? 'admin' : roles[0] || 'volunteer');
               console.log("User authenticated with roles:", roles);
             } catch (rolesError) {
@@ -249,11 +238,13 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           console.log("No existing session found");
           setUser(null);
           setPersistedSessionToken(null);
+          localStorage.removeItem('supabase_auth_token');
         }
       } catch (e) {
         console.error("Unexpected error in auth initialization:", e);
         setError("Authentication initialization failed");
         setUser(null);
+        localStorage.removeItem('supabase_auth_token');
       } finally {
         setLoading(false);
       }

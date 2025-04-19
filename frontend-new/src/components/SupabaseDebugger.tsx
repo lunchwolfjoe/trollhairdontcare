@@ -11,6 +11,7 @@ const SupabaseDebugger: React.FC = () => {
   const [userRolesResult, setUserRolesResult] = useState<any>(null);
   const [troubleshootResults, setTroubleshootResults] = useState<any>(null);
   const [troubleshootLoading, setTroubleshootLoading] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   
   const { troubleshootAuth } = useSimpleAuth();
 
@@ -112,6 +113,52 @@ const SupabaseDebugger: React.FC = () => {
       setTroubleshootLoading(false);
     }
   };
+  
+  const forceRefreshSession = async () => {
+    setIsRefreshing(true);
+    try {
+      // First clear any stored token to force a clean refresh
+      localStorage.removeItem('supabase_auth_token');
+      
+      // Force refresh the session
+      const { data, error } = await supabase.auth.refreshSession();
+      
+      if (error) {
+        console.error("Session refresh failed:", error);
+        alert(`Session refresh failed: ${error.message}`);
+        // Try a clean logout
+        await supabase.auth.signOut();
+      } else if (data?.session) {
+        // Store the refreshed token
+        localStorage.setItem('supabase_auth_token', data.session.access_token);
+        alert("Session refreshed successfully. Reloading page...");
+        window.location.reload();
+      } else {
+        alert("No session found. Please log in again.");
+      }
+    } catch (err) {
+      console.error("Error during session refresh:", err);
+      alert(`Error refreshing session: ${err.message}`);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+  
+  const forceCleanLogout = async () => {
+    try {
+      // Clear local storage
+      localStorage.removeItem('supabase_auth_token');
+      
+      // Call signOut to clear server-side session
+      await supabase.auth.signOut();
+      
+      alert("Logged out successfully. Reloading page...");
+      window.location.href = '/login';
+    } catch (err) {
+      console.error("Error during logout:", err);
+      alert(`Error during logout: ${err.message}`);
+    }
+  };
 
   if (!visible) {
     // Just show a small button in the corner when collapsed
@@ -174,6 +221,27 @@ const SupabaseDebugger: React.FC = () => {
             sx={{ flexGrow: 1 }}
           >
             Troubleshoot Auth
+          </Button>
+        </Box>
+        
+        <Box sx={{ display: 'flex', mb: 2, gap: 1 }}>
+          <Button 
+            variant="contained" 
+            color="success"
+            onClick={forceRefreshSession}
+            disabled={isRefreshing}
+            sx={{ flexGrow: 1 }}
+          >
+            Force Refresh Session
+          </Button>
+          
+          <Button 
+            variant="contained" 
+            color="error"
+            onClick={forceCleanLogout}
+            sx={{ flexGrow: 1 }}
+          >
+            Clean Logout
           </Button>
         </Box>
         
