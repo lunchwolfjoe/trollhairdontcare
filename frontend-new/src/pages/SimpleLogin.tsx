@@ -9,13 +9,9 @@ import {
   Tabs, 
   Tab, 
   Alert,
-  CircularProgress,
-  Link,
-  Card,
-  CardContent,
-  Grid
+  CircularProgress
 } from '@mui/material';
-import { Link as RouterLink, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useSimpleAuth } from '../contexts/SimpleAuthContext';
 
 interface TabPanelProps {
@@ -59,7 +55,7 @@ export const SimpleLogin: React.FC = () => {
   const [localError, setLocalError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  const { signIn, signUp, authenticated, loading, error, mockSignIn } = useSimpleAuth();
+  const { signIn, signUp, authenticated, loading, error } = useSimpleAuth();
   const navigate = useNavigate();
 
   // Redirect if already authenticated
@@ -115,12 +111,6 @@ export const SimpleLogin: React.FC = () => {
     } catch (err: any) {
       // Error is handled in the context and shown via the error effect
     }
-  };
-
-  // Bypass login with mock roles
-  const handleBypass = (role: string) => {
-    mockSignIn(role);
-    navigate('/');
   };
 
   return (
@@ -263,64 +253,6 @@ export const SimpleLogin: React.FC = () => {
             </Box>
           </TabPanel>
         </Paper>
-
-        {/* Quick access options for testing */}
-        <Typography variant="h6" sx={{ mt: 4, mb: 2 }}>
-          Quick Access for Testing
-        </Typography>
-        
-        <Grid container spacing={2}>
-          <Grid item xs={4}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  Volunteer
-                </Typography>
-                <Button 
-                  variant="outlined" 
-                  fullWidth
-                  onClick={() => handleBypass('volunteer')}
-                >
-                  Access
-                </Button>
-              </CardContent>
-            </Card>
-          </Grid>
-          
-          <Grid item xs={4}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  Coordinator
-                </Typography>
-                <Button 
-                  variant="outlined" 
-                  fullWidth
-                  onClick={() => handleBypass('coordinator')}
-                >
-                  Access
-                </Button>
-              </CardContent>
-            </Card>
-          </Grid>
-          
-          <Grid item xs={4}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  Admin
-                </Typography>
-                <Button 
-                  variant="outlined" 
-                  fullWidth
-                  onClick={() => handleBypass('admin')}
-                >
-                  Access
-                </Button>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
       </Box>
     </Container>
   );

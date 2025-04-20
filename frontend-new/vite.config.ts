@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
@@ -58,6 +59,13 @@ export default defineConfig(({ mode }) => ({
         global: 'globalThis',
       },
     }
+  },
+  // Add Vitest configuration
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: './src/setupTests.ts', // We'll create this file next
+    css: true, // Process CSS if your components import styles
   },
 }))
 

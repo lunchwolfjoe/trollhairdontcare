@@ -1,6 +1,6 @@
 import React from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
-import { ThemeProvider, CssBaseline, Box, Typography, Button } from "@mui/material";
+import { ThemeProvider, CssBaseline } from "@mui/material";
 import { theme } from "./theme";
 import { VolunteerLayout } from "./components/VolunteerLayout";
 import { CoordinatorLayout } from "./components/CoordinatorLayout";
@@ -31,19 +31,10 @@ import { WaiverSystem } from "./features/volunteer/WaiverSystem";
 import { FestivalManagement } from "./features/coordinator/FestivalManagement";
 import { FestivalDashboard } from "./features/coordinator/FestivalDashboard";
 import { WelcomeHomePortal } from "./features/coordinator/WelcomeHomePortal";
-import { SupabaseConnectionTest } from "./components/SupabaseConnectionTest";
 import { AccessDenied } from "./pages/AccessDenied";
-import { CreateTestUser } from "./components/DevHelpers/CreateTestUser";
-import { RoleFixer } from "./components/DevHelpers/RoleFixer";
 import { VolunteerCommunications } from "./features/volunteer/VolunteerCommunications";
-import SupabaseDebugger from "./components/SupabaseDebugger";
-
-// NEW IMPORTS - use the simplified auth system
 import { SimpleAuthProvider, useSimpleAuth } from "./contexts/SimpleAuthContext";
 import { SimpleLogin } from "./pages/SimpleLogin";
-
-// Check if we're in development mode
-const isDevelopment = import.meta.env.MODE === 'development' || window.location.hostname === 'localhost';
 
 // New simplified protected route component
 interface SimpleProtectedRouteProps {
@@ -58,11 +49,7 @@ const SimpleProtectedRoute: React.FC<SimpleProtectedRouteProps> = ({
   const { authenticated, loading, activeRole } = useSimpleAuth();
 
   if (loading) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}>
-        <Typography>Loading...</Typography>
-      </Box>
-    );
+    return <div>Loading...</div>;
   }
 
   if (!authenticated) {
@@ -85,18 +72,6 @@ function SimpleAppRoutes() {
         {/* Public routes */}
         <Route path="/login" element={<SimpleLogin />} />
         <Route path="/access-denied" element={<AccessDenied />} />
-        <Route path="/test-connection" element={<SupabaseConnectionTest />} />
-        
-        {/* Development helpers */}
-        {isDevelopment && (
-          <Route path="/dev-tools" element={
-            <Box sx={{ p: 3 }}>
-              <Typography variant="h4" gutterBottom>Development Tools</Typography>
-              <CreateTestUser />
-              <RoleFixer />
-            </Box>
-          } />
-        )}
 
         {/* Default redirect based on authentication and role */}
         <Route
@@ -183,7 +158,6 @@ function SimpleAppRoutes() {
                   <Route path="festivals" element={<AdminFestivals />} />
                   <Route path="users" element={<UserManagement />} />
                   <Route path="settings" element={<SystemSettings />} />
-                  <Route path="connection-test" element={<SupabaseConnectionTest />} />
                 </Routes>
               </AdminLayout>
             </SimpleProtectedRoute>
@@ -196,27 +170,6 @@ function SimpleAppRoutes() {
       
       {/* Role Switcher - only show if authenticated */}
       {authenticated && <RoleSwitcher />}
-      
-      {/* Development Tools Quick Access */}
-      {isDevelopment && (
-        <Box
-          sx={{
-            position: 'fixed',
-            bottom: 20,
-            left: 20,
-            zIndex: 9999,
-          }}
-        >
-          <Button
-            variant="contained"
-            color="secondary"
-            size="small"
-            onClick={() => window.location.href = '/dev-tools'}
-          >
-            Dev Tools
-          </Button>
-        </Box>
-      )}
     </>
   );
 }
@@ -226,7 +179,6 @@ function App() {
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <SimpleAuthProvider>
-        <SupabaseDebugger />
         <Router>
           <SimpleAppRoutes />
         </Router>
