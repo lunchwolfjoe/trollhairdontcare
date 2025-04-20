@@ -25,10 +25,14 @@ export const SimpleLogin: React.FC = () => {
     }
     
     try {
+      console.log('Attempting login with:', email);
       const success = await signIn(email, password);
+      
       if (success) {
-        // Navigate to appropriate dashboard based on role
+        console.log('Login successful, redirecting...');
         navigate('/');
+      } else {
+        console.log('Login failed');
       }
     } catch (err) {
       console.error('Login error:', err);

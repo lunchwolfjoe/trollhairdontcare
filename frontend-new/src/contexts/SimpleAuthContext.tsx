@@ -1,33 +1,5 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
-import { createClient } from '@supabase/supabase-js';
-
-// Create a Supabase client (production-ready with improved variable access)
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-// Check if we have our environment variables before initializing
-if (!supabaseUrl || !supabaseKey) {
-  console.error('Supabase URL or key is missing. Check your environment variables.');
-}
-
-const supabaseClient = createClient(
-  supabaseUrl,
-  supabaseKey,
-  {
-    auth: {
-      persistSession: true,
-      autoRefreshToken: true,
-      detectSessionInUrl: true,
-      storage: localStorage
-    }
-  }
-);
-
-// Detect production vs development for domain-specific handling
-const isProduction = window.location.hostname !== 'localhost';
-const SITE_URL = isProduction 
-  ? `https://${window.location.hostname}`
-  : 'http://localhost:5173';
+import { getSupabaseClient } from '../lib/supabase';
 
 // User type 
 type User = {
@@ -48,7 +20,6 @@ type SimpleAuthContextType = {
   signIn: (email: string, password: string) => Promise<boolean>;
   signUp: (email: string, password: string, userData: { full_name: string }) => Promise<void>;
   signOut: () => Promise<void>;
-  getAuthHeaders: () => Record<string, string>;
 };
 
 // Create context
@@ -60,34 +31,14 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeRole, setActiveRole] = useState<string | null>(null);
-  const [token, setToken] = useState<string | null>(null);
 
-  // Get headers for authenticated requests
-  const getAuthHeaders = () => {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json'
-    };
-    
-    // Only set token when we have it - NEVER use the anon key as Bearer token
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-    
-    return headers;
-  };
+  // Get supabase client
+  const supabase = getSupabaseClient();
 
   // Fetch user roles by ID
   const fetchUserRoles = async (userId: string): Promise<string[]> => {
     try {
-      // Get the current session first to ensure we have a valid token
-      const { data: { session } } = await supabaseClient.auth.getSession();
-      
-      if (!session) {
-        return ['volunteer']; // Default role when no session exists
-      }
-      
-      // Use session token for this request
-      const { data, error } = await supabaseClient
+      const { data, error } = await supabase
         .from('user_roles')
         .select('role_id, roles(name)')
         .eq('user_id', userId);
@@ -111,7 +62,7 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const setupAuth = async () => {
       try {
         // Get the current session
-        const { data: { session }, error: sessionError } = await supabaseClient.auth.getSession();
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
         
         if (sessionError) {
           setError(sessionError.message);
@@ -122,19 +73,14 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         if (!session) {
           // No active session
           setUser(null);
-          setToken(null);
           setActiveRole(null);
           setLoading(false);
           return;
         }
         
-        // We have a session, save the token 
-        const accessToken = session.access_token;
-        setToken(accessToken);
-        
         try {
-          // Get user data using the session token automatically provided by the supabase client
-          const { data: userData, error: userError } = await supabaseClient.auth.getUser();
+          // Get user data
+          const { data: userData, error: userError } = await supabase.auth.getUser();
           
           if (userError || !userData?.user) {
             throw userError || new Error('No user found');
@@ -172,13 +118,10 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setupAuth();
     
     // Set up session change listener
-    const { data: { subscription } } = supabaseClient.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_IN' && session) {
-        // Update the token right away
-        setToken(session.access_token);
-        
         // Then fetch the user
-        supabaseClient.auth.getUser().then(({ data, error }) => {
+        supabase.auth.getUser().then(({ data, error }) => {
           if (error || !data?.user) {
             console.error('Failed to get user after sign in:', error);
             return;
@@ -201,10 +144,7 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         });
       } else if (event === 'SIGNED_OUT') {
         setUser(null);
-        setToken(null);
         setActiveRole(null);
-      } else if (event === 'TOKEN_REFRESHED' && session) {
-        setToken(session.access_token);
       }
     });
     
@@ -221,12 +161,12 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     
     try {
       // Clear any existing session first
-      await supabaseClient.auth.signOut();
+      await supabase.auth.signOut();
       
-      console.log("Signing in with:", { email, supabaseUrl });
+      console.log("Signing in with:", { email });
       
-      // Sign in with password - CRITICAL FIX: Don't use anon key as Bearer token
-      const { data, error } = await supabaseClient.auth.signInWithPassword({
+      // Sign in with password
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password
       });
@@ -242,24 +182,10 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         return false;
       }
       
-      console.log("Auth successful, token received");
+      console.log("Auth successful, session established");
       
-      // Save the session token (NOT the anon key)
-      setToken(data.session.access_token);
-      
-      // Get roles for this user
-      const roles = await fetchUserRoles(data.user.id);
-      
-      // Store user info
-      const userWithRoles: User = {
-        id: data.user.id,
-        email: data.user.email || '',
-        full_name: data.user.user_metadata?.full_name,
-        roles: roles,
-        avatar_url: data.user.user_metadata?.avatar_url,
-      };
-      
-      setUser(userWithRoles);
+      // Get roles for this user - user data is handled by the auth state listener
+      // so we don't need to manually set it here
       
       return true;
     } catch (err) {
@@ -277,7 +203,7 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setError(null);
     
     try {
-      const { error } = await supabaseClient.auth.signUp({
+      const { error } = await supabase.auth.signUp({
         email,
         password,
         options: {
@@ -305,7 +231,7 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     
     try {
       // Use Supabase client to sign out
-      const { error } = await supabaseClient.auth.signOut();
+      const { error } = await supabase.auth.signOut();
       
       if (error) {
         throw error;
@@ -313,7 +239,6 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       
       // Clear state immediately, don't wait for event
       setUser(null);
-      setToken(null);
       setActiveRole(null);
     } catch (err: any) {
       console.error('Sign out error:', err);
@@ -321,7 +246,6 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       
       // Force sign out anyway
       setUser(null);
-      setToken(null);
       setActiveRole(null);
     } finally {
       setLoading(false);
@@ -333,12 +257,11 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     user,
     loading,
     error,
-    authenticated: !!user && !!token,
+    authenticated: !!user,
     activeRole,
     signIn,
     signUp,
     signOut,
-    getAuthHeaders,
   };
 
   return (
