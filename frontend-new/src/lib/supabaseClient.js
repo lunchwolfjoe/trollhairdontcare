@@ -5,10 +5,18 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 // Use the correct API key from environment variables
 const correctKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
+// Log error if env variables not found - this helps debugging Vercel deployments
+if (!supabaseUrl || !correctKey) {
+  console.error('Supabase environment variables are missing!', {
+    url: supabaseUrl ? 'Found' : 'Missing',
+    key: correctKey ? 'Found' : 'Missing'
+  });
+}
+
 // Enhanced logging of configuration
 console.log('Supabase Config (FORCE_JSON_HEADER):', {
   url: supabaseUrl,
-  keyPrefix: correctKey.substring(0, 10) + '...',
+  keyPrefix: correctKey ? correctKey.substring(0, 10) + '...' : 'Missing key',
 });
 
 // Override fetch to ensure correct headers

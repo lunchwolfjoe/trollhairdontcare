@@ -1,10 +1,18 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
-// Create a Supabase client (production-ready)
+// Create a Supabase client (production-ready with improved variable access)
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+// Check if we have our environment variables before initializing
+if (!supabaseUrl || !supabaseKey) {
+  console.error('Supabase URL or key is missing. Check your environment variables.');
+}
+
 const supabaseClient = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY,
+  supabaseUrl,
+  supabaseKey,
   {
     auth: {
       persistSession: true,
@@ -207,6 +215,8 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       // Clear any existing session first
       await supabaseClient.auth.signOut();
       
+      console.log("Signing in with:", { email, supabaseUrl, keyFirstChars: supabaseKey.substring(0, 10) + "..." });
+      
       // Sign in with password - the core issue
       const { data, error } = await supabaseClient.auth.signInWithPassword({
         email,
@@ -223,6 +233,8 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         setError('Authentication failed. Please try again.');
         return false;
       }
+      
+      console.log("Auth successful, token received:", data.session.access_token.substring(0, 10) + "...");
       
       // Get roles for this user
       const roles = await fetchUserRoles(data.user.id);
