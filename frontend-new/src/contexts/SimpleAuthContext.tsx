@@ -65,10 +65,10 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   // Get headers for authenticated requests
   const getAuthHeaders = () => {
     const headers: Record<string, string> = {
-      'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
       'Content-Type': 'application/json'
     };
     
+    // Only set token when we have it - NEVER use the anon key as Bearer token
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
     }
@@ -79,6 +79,14 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   // Fetch user roles by ID
   const fetchUserRoles = async (userId: string): Promise<string[]> => {
     try {
+      // Get the current session first to ensure we have a valid token
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      
+      if (!session) {
+        return ['volunteer']; // Default role when no session exists
+      }
+      
+      // Use session token for this request
       const { data, error } = await supabaseClient
         .from('user_roles')
         .select('role_id, roles(name)')
@@ -125,8 +133,8 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         setToken(accessToken);
         
         try {
-          // Get user data
-          const { data: userData, error: userError } = await supabaseClient.auth.getUser(accessToken);
+          // Get user data using the session token automatically provided by the supabase client
+          const { data: userData, error: userError } = await supabaseClient.auth.getUser();
           
           if (userError || !userData?.user) {
             throw userError || new Error('No user found');
@@ -170,7 +178,7 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         setToken(session.access_token);
         
         // Then fetch the user
-        supabaseClient.auth.getUser(session.access_token).then(({ data, error }) => {
+        supabaseClient.auth.getUser().then(({ data, error }) => {
           if (error || !data?.user) {
             console.error('Failed to get user after sign in:', error);
             return;
@@ -215,9 +223,9 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       // Clear any existing session first
       await supabaseClient.auth.signOut();
       
-      console.log("Signing in with:", { email, supabaseUrl, keyFirstChars: supabaseKey.substring(0, 10) + "..." });
+      console.log("Signing in with:", { email, supabaseUrl });
       
-      // Sign in with password - the core issue
+      // Sign in with password - CRITICAL FIX: Don't use anon key as Bearer token
       const { data, error } = await supabaseClient.auth.signInWithPassword({
         email,
         password
@@ -234,7 +242,10 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         return false;
       }
       
-      console.log("Auth successful, token received:", data.session.access_token.substring(0, 10) + "...");
+      console.log("Auth successful, token received");
+      
+      // Save the session token (NOT the anon key)
+      setToken(data.session.access_token);
       
       // Get roles for this user
       const roles = await fetchUserRoles(data.user.id);
@@ -249,7 +260,6 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       };
       
       setUser(userWithRoles);
-      setToken(data.session.access_token);
       
       return true;
     } catch (err) {
