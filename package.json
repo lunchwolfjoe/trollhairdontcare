@@ -21,8 +21,13 @@
     "test": "cd frontend-new && npm run test"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
     "http-proxy": "^1.18.1",
-    "typescript": "^5.0.0"
+    "jsdom": "^26.1.0",
+    "typescript": "^5.0.0",
+    "vitest": "^3.1.1"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.4",

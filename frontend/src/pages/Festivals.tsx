@@ -37,6 +37,7 @@ import FestivalForm from '../components/festivals/FestivalForm';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 import ErrorMessage from '../components/common/ErrorMessage';
 import { useAuth } from '../contexts/AuthContext';
+import { useFestivalService } from '../hooks/useFestivalService';
 
 interface Festival {
   id: string;
@@ -69,6 +70,7 @@ const STATUS_COLORS = {
 
 const Festivals = () => {
   const { user } = useAuth();
+  const festivalService = useFestivalService();
   const navigate = useNavigate();
   const [festivals, setFestivals] = useState<Festival[]>([]);
   const [loading, setLoading] = useState(true);
@@ -95,47 +97,41 @@ const Festivals = () => {
     const fetchFestivals = async () => {
       try {
         setLoading(true);
-        const { data, error } = await supabase
-          .from('festivals')
-          .select('*')
-          .order('start_date', { ascending: true });
+        setError(null);
+        
+        console.log('Fetching festivals using festival service');
+        const { data, error } = await festivalService.getFestivals();
         
         if (error) {
-          throw error;
+          console.error('Error fetching festivals:', error);
+          setError(error.message || 'Failed to fetch festivals');
+          return;
         }
         
+        console.log('Festivals fetched successfully, count:', data.length);
         setFestivals(data || []);
       } catch (err: any) {
         console.error('Error fetching festivals:', err);
-        setError(err.message);
+        setError(err.message || 'An unexpected error occurred');
       } finally {
         setLoading(false);
       }
     };
     
     fetchFestivals();
-  }, []);
+  }, [festivalService]);
 
   const handleCreateFestival = async (festival: FestivalCreate) => {
     try {
-      // First, check if user is authenticated
-      const { data: { session } } = await supabase.auth.getSession();
+      setLoading(true);
+      console.log('Creating festival with festival service');
       
-      if (!session) {
-        throw new Error('Authentication required. Please log in to create festivals.');
-      }
+      const { data, error } = await festivalService.createFestival(festival);
       
-      console.log('Creating festival with authenticated session');
-      
-      const { data, error } = await supabase
-        .from('festivals')
-        .insert([festival])
-        .select()
-        .single();
-
       if (error) {
         console.error('Festival creation error:', error);
-        throw error;
+        setError(error.message);
+        return;
       }
       
       console.log('Festival created successfully:', data);
@@ -143,31 +139,23 @@ const Festivals = () => {
       setShowForm(false);
     } catch (err) {
       console.error('Festival creation failed:', err);
-      throw new Error(err instanceof Error ? err.message : 'Failed to create festival');
+      setError(err instanceof Error ? err.message : 'Failed to create festival');
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleUpdateFestival = async (festival: FestivalUpdate) => {
     try {
-      // First, check if user is authenticated
-      const { data: { session } } = await supabase.auth.getSession();
+      setLoading(true);
+      console.log('Updating festival with festival service');
       
-      if (!session) {
-        throw new Error('Authentication required. Please log in to update festivals.');
-      }
+      const { data, error } = await festivalService.updateFestival(festival.id, festival);
       
-      console.log('Updating festival with authenticated session');
-      
-      const { data, error } = await supabase
-        .from('festivals')
-        .update(festival)
-        .eq('id', festival.id)
-        .select()
-        .single();
-
       if (error) {
         console.error('Festival update error:', error);
-        throw error;
+        setError(error.message);
+        return;
       }
       
       console.log('Festival updated successfully:', data);
@@ -175,29 +163,23 @@ const Festivals = () => {
       setSelectedFestival(null);
     } catch (err) {
       console.error('Festival update failed:', err);
-      throw new Error(err instanceof Error ? err.message : 'Failed to update festival');
+      setError(err instanceof Error ? err.message : 'Failed to update festival');
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleDeleteFestival = async (id: string) => {
     try {
-      // First, check if user is authenticated
-      const { data: { session } } = await supabase.auth.getSession();
+      setLoading(true);
+      console.log('Deleting festival with festival service');
       
-      if (!session) {
-        throw new Error('Authentication required. Please log in to delete festivals.');
-      }
+      const { error } = await festivalService.deleteFestival(id);
       
-      console.log('Deleting festival with authenticated session');
-      
-      const { error } = await supabase
-        .from('festivals')
-        .delete()
-        .eq('id', id);
-
       if (error) {
         console.error('Festival deletion error:', error);
-        throw error;
+        setError(error.message);
+        return;
       }
       
       console.log('Festival deleted successfully');
@@ -205,7 +187,9 @@ const Festivals = () => {
       setSelectedFestival(null);
     } catch (err) {
       console.error('Festival deletion failed:', err);
-      throw new Error(err instanceof Error ? err.message : 'Failed to delete festival');
+      setError(err instanceof Error ? err.message : 'Failed to delete festival');
+    } finally {
+      setLoading(false);
     }
   };
 

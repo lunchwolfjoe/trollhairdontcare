@@ -1,135 +1,139 @@
-import { ApiResponse, BaseService, getCurrentUserId } from './api';
+import { ApiResponse, handleError } from './api';
 import { Profile } from '../types/models';
+import { Database } from '../types/supabase';
 import { supabase } from '../supabaseClient';
 
 /**
  * Service for handling profile operations
  */
-export class ProfileService extends BaseService {
-  constructor() {
-    super('profiles');
-  }
-
-  /**
-   * Get the current user's profile
-   */
-  async getCurrentProfile(): Promise<ApiResponse<Profile>> {
-    const userId = await getCurrentUserId();
-    
-    if (!userId) {
-      return {
-        data: null,
-        error: {
-          status: 401,
-          message: 'Not authenticated'
-        }
-      };
-    }
-    
-    return this.getProfileById(userId);
-  }
+export class ProfileService {
+  private readonly tableName = 'profiles';
 
   /**
    * Get a profile by ID
    */
-  async getProfileById(id: string): Promise<ApiResponse<Profile>> {
-    return this.executeQuery<Profile>(
-      this.query().select('*').eq('id', id).single()
-    );
+  async getProfile(userId: string): Promise<ApiResponse<Profile>> {
+    try {
+      const { data, error } = await (supabase.from(this.tableName).select('*') as any)
+        .eq('id', userId)
+        .single();
+      if (error) {
+        return { data: null, error: handleError(error) };
+      }
+      return { data: data as Profile | null, error: null };
+    } catch (error) {
+      return { data: null, error: handleError(error) };
+    }
   }
 
   /**
-   * Update the current user's profile
+   * Get all profiles
    */
-  async updateProfile(profileData: Partial<Profile>): Promise<ApiResponse<Profile>> {
-    const userId = await getCurrentUserId();
-    
-    if (!userId) {
-      return {
-        data: null,
-        error: {
-          status: 401,
-          message: 'Not authenticated'
-        }
-      };
+  async getProfiles(): Promise<ApiResponse<Profile[]>> {
+    try {
+      const { data, error } = await (supabase.from(this.tableName).select('*') as any).order('full_name');
+      if (error) {
+        return { data: null, error: handleError(error) };
+      }
+      return { data: data as Profile[], error: null };
+    } catch (error) {
+      return { data: null, error: handleError(error) };
     }
-    
-    // Remove id and timestamps from update data
-    const { id, created_at, updated_at, ...updateData } = profileData as any;
-    
-    return this.executeQuery<Profile>(
-      this.query()
-        .update(updateData)
+  }
+
+  /**
+   * Update a profile's avatar
+   */
+  async updateAvatar(userId: string, file: File): Promise<ApiResponse<{ path: string }>> {
+    try {
+      const fileExt = file.name.split('.').pop();
+      const filePath = `${userId}/avatar.${fileExt}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, file, { upsert: true });
+
+      if (uploadError) {
+        return { data: null, error: handleError(uploadError) };
+      }
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(filePath);
+
+      if (!publicUrl) {
+        return { data: null, error: handleError(new Error('Could not get public URL for uploaded avatar.')) };
+      }
+
+      const updateResponse = await this.updateProfile(userId, {
+        avatar_url: publicUrl
+      });
+
+      if (updateResponse.error) {
+        return { data: { path: filePath }, error: updateResponse.error };
+      }
+
+      return {
+        data: { path: publicUrl },
+        error: null
+      };
+    } catch (error) {
+      return { data: null, error: handleError(error) };
+    }
+  }
+
+  /**
+   * Update a profile
+   */
+  async updateProfile(userId: string, profileData: Partial<Profile>): Promise<ApiResponse<Profile>> {
+    try {
+      const { data, error } = await supabase.from(this.tableName)
+        .update(profileData)
         .eq('id', userId)
         .select()
-        .single()
-    );
+        .single();
+      if (error) {
+        return { data: null, error: handleError(error) };
+      }
+      return { data: data as Profile | null, error: null };
+    } catch (error) {
+      return { data: null, error: handleError(error) };
+    }
   }
 
-  /**
-   * Upload a profile avatar image
-   */
-  async uploadAvatar(file: File): Promise<ApiResponse<{ path: string }>> {
-    const userId = await getCurrentUserId();
-    
-    if (!userId) {
-      return {
-        data: null,
-        error: {
-          status: 401,
-          message: 'Not authenticated'
-        }
-      };
-    }
-    
-    // Generate a unique file path
-    const fileExt = file.name.split('.').pop();
-    const fileName = `${userId}-${Date.now()}.${fileExt}`;
-    const filePath = `${userId}/${fileName}`;
-    
-    // Upload to storage
-    const { data, error } = await supabase.storage
-      .from('profile-avatars')
-      .upload(filePath, file, {
-        upsert: true
+  async uploadAvatar(userId: string, file: File): Promise<ApiResponse<{ path: string }>> {
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${userId}-${Date.now()}.${fileExt}`;
+      const filePath = `avatars/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, file, { upsert: true });
+
+      if (uploadError) {
+        return { data: null, error: handleError(uploadError) };
+      }
+
+      const { data: publicUrlData } = supabase.storage.from('avatars').getPublicUrl(filePath);
+      
+      if (!publicUrlData?.publicUrl) {
+         return { data: null, error: handleError(new Error('Could not get public URL for uploaded avatar.')) };
+      }
+
+      const updateResponse = await this.updateProfile(userId, { 
+        avatar_url: publicUrlData.publicUrl 
       });
       
-    if (error) {
-      return {
-        data: null,
-        error: {
-          status: 500,
-          message: 'Failed to upload avatar',
-          details: error
-        }
-      };
+      if (updateResponse.error) {
+         return { data: { path: filePath }, error: updateResponse.error };
+      }
+
+      return { data: { path: filePath }, error: null };
+
+    } catch (error) {
+      return { data: null, error: handleError(error) };
     }
-    
-    // Get the public URL
-    const { data: { publicUrl } } = supabase.storage
-      .from('profile-avatars')
-      .getPublicUrl(filePath);
-      
-    // Update the profile with the new avatar URL
-    const updateResult = await this.updateProfile({
-      avatar_url: publicUrl
-    });
-    
-    if (updateResult.error) {
-      return {
-        data: null,
-        error: {
-          status: 500,
-          message: 'Failed to update profile with new avatar',
-          details: updateResult.error
-        }
-      };
-    }
-    
-    return {
-      data: { path: publicUrl },
-      error: null
-    };
   }
 }
 

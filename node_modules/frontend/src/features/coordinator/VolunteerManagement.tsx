@@ -22,6 +22,7 @@ import {
   Tabs,
   Tab,
   CircularProgress,
+  SelectChangeEvent,
 } from '@mui/material';
 import {
   CheckCircle as ApproveIcon,
@@ -70,7 +71,7 @@ function TabPanel(props: TabPanelProps) {
       aria-labelledby={`volunteer-tab-${index}`}
       {...other}
     >
-      {value === index && <Box sx={{ p: 3 }}>{children}</Box>}
+      {value === index && <div style={{ padding: '24px' }}>{children}</div>}
     </div>
   );
 }
@@ -87,7 +88,7 @@ const VolunteerManagement: React.FC = () => {
   const [editedSkills, setEditedSkills] = useState<string[]>([]);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
-  const [snackbarSeverity, setSnackbarSeverity] = useState<'success' | 'error'>('success');
+  const [snackbarSeverity, setSnackbarSeverity] = useState<'success' | 'error' | 'info'>('success');
   
   // State for data
   const [loading, setLoading] = useState(true);
@@ -352,7 +353,7 @@ const VolunteerManagement: React.FC = () => {
   };
   
   // Skills change handler
-  const handleSkillChange = (event: React.ChangeEvent<{ value: unknown }>) => {
+  const handleSkillChange = (event: SelectChangeEvent<string[]>) => {
     setEditedSkills(event.target.value as string[]);
   };
   
@@ -545,7 +546,7 @@ const VolunteerManagement: React.FC = () => {
             pagination={pagination.paginationProps}
             loading={loading}
             emptyMessage="No volunteers found"
-            sortConfig={sorting.sortConfig || undefined}
+            sortConfig={sorting.sortConfig}
             onSort={sorting.requestSort}
           />
         </TabPanel>
@@ -558,7 +559,7 @@ const VolunteerManagement: React.FC = () => {
             pagination={pagination.paginationProps}
             loading={loading}
             emptyMessage="No pending volunteers found"
-            sortConfig={sorting.sortConfig || undefined}
+            sortConfig={sorting.sortConfig}
             onSort={sorting.requestSort}
           />
         </TabPanel>
@@ -571,7 +572,7 @@ const VolunteerManagement: React.FC = () => {
             pagination={pagination.paginationProps}
             loading={loading}
             emptyMessage="No approved volunteers found"
-            sortConfig={sorting.sortConfig || undefined}
+            sortConfig={sorting.sortConfig}
             onSort={sorting.requestSort}
           />
         </TabPanel>
@@ -584,7 +585,7 @@ const VolunteerManagement: React.FC = () => {
             pagination={pagination.paginationProps}
             loading={loading}
             emptyMessage="No rejected volunteers found"
-            sortConfig={sorting.sortConfig || undefined}
+            sortConfig={sorting.sortConfig}
             onSort={sorting.requestSort}
           />
         </TabPanel>
@@ -724,7 +725,7 @@ const VolunteerManagement: React.FC = () => {
                 <Select
                   multiple
                   value={editedSkills}
-                  onChange={handleSkillChange as any}
+                  onChange={handleSkillChange}
                   input={<OutlinedInput label="Skills" />}
                   renderValue={(selected) => (
                     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>

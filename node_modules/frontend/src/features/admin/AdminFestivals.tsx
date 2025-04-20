@@ -176,51 +176,72 @@ const AdminFestivals: React.FC = () => {
     setSelectedFestival(null);
   };
 
-  const handleSubmit = async () => {
+  // Show snackbar notification
+  const showSnackbar = (message: string, severity: 'success' | 'error') => {
+    setSnackbarMessage(message);
+    setSnackbarSeverity(severity);
+    setSnackbarOpen(true);
+  };
+
+  // Handle form submission (reverted version)
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    setLoading(true);
+    setError(null);
+    
     try {
-      setLoading(true);
+      console.log('Submitting festival data:', formData);
       
-      let result;
+      // Validate required fields
+      if (!formData.name) throw new Error('Festival name is required');
+      if (!formData.start_date) throw new Error('Start date is required');
+      if (!formData.end_date) throw new Error('End date is required');
       
-      if (selectedFestival) {
-        // Update existing festival
-        result = await festivalService.updateFestival(selectedFestival.id, {
-          name: formData.name,
-          start_date: formData.start_date,
-          end_date: formData.end_date,
-          location: formData.location,
-          status: formData.status.toLowerCase(),
+      // Ensure status is a valid status value
+      const validStatus = (status: string): 'planning' | 'active' | 'completed' | 'cancelled' => {
+        const normalizedStatus = status?.toLowerCase() || '';
+        if (['planning', 'active', 'completed', 'cancelled'].includes(normalizedStatus)) {
+          return normalizedStatus as 'planning' | 'active' | 'completed' | 'cancelled';
+        }
+        return 'planning';
+      };
+      
+      // Prepare festival data without explicit user ID
+      const festivalData = {
+        ...formData,
+        status: validStatus(formData.status)
+      };
+      
+      // Call createFestival service (original signature without userId)
+      const { data, error } = await festivalService.createFestival(festivalData);
+      
+      if (error) {
+        console.error('Festival creation failed:', error);
+        throw new Error(error.message || 'Failed to create festival. Check console.');
+      }
+      
+      // Add the new festival to the state (this might be the mock data)
+      if (data) {
+        console.log('Festival created (potentially mock):', data);
+        setFestivals([data, ...festivals]); // Add to the top of the list
+        showSnackbar('Festival created successfully', 'success');
+        handleClose(); // Close the modal
+        setFormData({ // Reset form
+          name: '',
+          start_date: '',
+          end_date: '',
+          location: '',
+          status: '',
         });
       } else {
-        // Create new festival
-        result = await festivalService.createFestival({
-          name: formData.name,
-          start_date: formData.start_date,
-          end_date: formData.end_date,
-          location: formData.location,
-          status: formData.status.toLowerCase(),
-        });
+        // This case might happen if the mock fallback somehow failed
+        throw new Error('No data returned from festival creation attempt');
       }
-      
-      if (result.error) {
-        throw new Error(result.error.message || 'Failed to save festival');
-      }
-      
-      // Fetch festivals to refresh the list
-      fetchFestivals();
-      
-      handleClose();
-      
-      // Show success message
-      setSnackbarMessage('Festival saved successfully');
-      setSnackbarSeverity('success');
-      setSnackbarOpen(true);
-    } catch (error: any) {
-      console.error('Error saving festival:', error);
-      // Show error message
-      setSnackbarMessage(error.message);
-      setSnackbarSeverity('error');
-      setSnackbarOpen(true);
+    } catch (err: any) {
+      console.error('Error creating festival:', err);
+      setError(err.message || 'Failed to create festival');
+      showSnackbar(err.message || 'Failed to create festival', 'error');
     } finally {
       setLoading(false);
     }

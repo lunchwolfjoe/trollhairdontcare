@@ -11,6 +11,7 @@ import { useAppDispatch, useAppSelector } from './store/hooks';
 // Import pages
 import Dashboard from './pages/Dashboard';
 import Login from './pages/Login';
+import SupabaseTest from './components/SupabaseTest';
 
 const AppContent = () => {
   const dispatch = useAppDispatch();
@@ -30,6 +31,7 @@ const AppContent = () => {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/dashboard" element={<Dashboard />} />
+      <Route path="/supabase-test" element={<SupabaseTest />} />
       <Route path="/" element={user ? <Navigate to="/dashboard" /> : <Navigate to="/login" />} />
       <Route path="*" element={<div>Page Not Found</div>} />
     </Routes>

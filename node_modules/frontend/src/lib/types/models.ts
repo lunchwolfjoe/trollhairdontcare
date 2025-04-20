@@ -45,14 +45,16 @@ export interface Festival extends BaseModel {
 }
 
 /**
- * Location within a festival
+ * Location within a festival (Ensure fields match supabase.ts)
  */
 export interface Location extends BaseModel {
   festival_id: string;
   name: string;
-  description?: string;
-  location_type: string;
-  coordinates?: any; // JSONB in database
+  description?: string | null;
+  location_type?: string | null; // e.g., 'stage', 'food_stall', 'info_booth'
+  latitude?: number | null;
+  longitude?: number | null;
+  // updated_at is optional in BaseModel
 }
 
 /**
@@ -65,6 +67,21 @@ export interface Volunteer extends BaseModel {
   notes?: string;
   availability_start?: string;
   availability_end?: string;
+  // Additional properties used in the UI
+  skills?: string[];
+  email?: string;
+  phone?: string;
+  profiles?: {
+    id: string;
+    full_name?: string;
+    avatar_url?: string;
+    email?: string;
+  };
+  availability?: {
+    days?: string[];
+    startTime?: string;
+    endTime?: string;
+  };
 }
 
 /**
@@ -94,13 +111,22 @@ export interface Waiver extends BaseModel {
 }
 
 /**
- * Message data
+ * Message data (Refined based on component usage)
  */
 export interface Message extends BaseModel {
   festival_id: string;
-  sender_id: string;
+  sender_id?: string | null; // User ID (profile_id) or null for system
+  sender_name?: string; // Denormalized for display, might need joining in service
+  recipient_id?: string | null; // For direct messages
+  channel_id?: string | null; // For channel messages
+  subject?: string | null;
+  title?: string | null; // Added based on VolunteerDashboard errors
   content: string;
-  message_type: 'announcement' | 'notification' | 'message';
+  message_type: 'announcement' | 'notification' | 'direct' | 'channel';
+  audience?: string[] | null; // Roles or specific user IDs
+  important?: boolean;
+  read?: boolean; // For tracking read status, esp. for DMs
+  // created_at/updated_at from BaseModel
 }
 
 /**
@@ -182,17 +208,16 @@ export interface CrewMember extends BaseModel {
 }
 
 /**
- * Shift information
+ * Shift information (Ensure fields match supabase.ts)
  */
 export interface Shift extends BaseModel {
-  festival_id: string;
   crew_id: string;
-  location_id: string;
   start_time: string;
   end_time: string;
-  required_volunteers: number;
-  status: 'open' | 'filled' | 'in-progress' | 'completed' | 'cancelled';
-  notes?: string;
+  status: 'scheduled' | 'in_progress' | 'completed' | 'cancelled';
+  // Add other fields if needed by components, e.g., location (might require join)
+  location?: string; // Example if needed
+  date?: string; // Example if needed (might be derived from start_time)
 }
 
 /**
@@ -273,4 +298,66 @@ export interface AssetLog extends BaseModel {
   action: 'check_out' | 'check_in' | 'transfer' | 'maintenance' | 'lost';
   action_time: string;
   condition_notes?: string;
+}
+
+/**
+ * Task information (Ensure fields match supabase.ts + component usage)
+ */
+export interface Task extends BaseModel {
+  title: string;
+  description?: string | null;
+  category?: string; // Or reference TaskCategory interface
+  status: 'todo' | 'in_progress' | 'completed';
+  priority?: 'low' | 'medium' | 'high';
+  due_date?: string | null;
+  start_time?: string | null; // Added based on errors
+  end_time?: string | null;   // Added based on errors
+  assignee_id?: string | null; 
+  creator_id?: string | null;
+  festival_id?: string | null;
+  crew_id?: string | null; // Add optional crew_id
+  // created_at/updated_at from BaseModel
+}
+
+/**
+ * Task Category (Ensure fields match supabase.ts + component usage)
+ */
+export interface TaskCategory extends BaseModel {
+   name: string;
+   description?: string | null;
+   festival_id: string; 
+}
+
+/**
+ * Guest information
+ */
+export interface Guest extends BaseModel {
+  full_name: string;
+  email: string;
+  phone?: string | null;
+  festival_id: string;
+  ticket_type?: string | null;
+  ticket_number?: string | null;
+  checked_in: boolean;
+  // Add potentially missing fields based on WelcomeHomePortal usage
+  tow_vehicle_permit?: boolean;
+  sleeper_vehicle_permit?: boolean;
+  credentials_issued?: boolean;
+}
+
+/**
+ * Incident report information
+ */
+export interface Incident extends BaseModel {
+  festival_id: string;
+  title: string;
+  description: string; // Make required based on errors
+  incident_type?: string | null;
+  severity?: 'low' | 'medium' | 'high' | 'critical';
+  status?: 'open' | 'investigating' | 'resolved' | 'closed';
+  location?: string | null;
+  reported_by?: string | null; // user_id
+  reported_at: string;
+  resolved_at?: string | null;
+  resolution_notes?: string | null;
 } 

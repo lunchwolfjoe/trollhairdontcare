@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Container,
@@ -31,6 +31,9 @@ import {
   ListItem,
   ListItemText,
   ListItemIcon,
+  AlertColor,
+  MenuItem,
+  Tooltip
 } from '@mui/material';
 import {
   WbSunny as SunnyIcon,
@@ -49,9 +52,113 @@ import {
   Close as CloseIcon,
   CheckCircle as CheckCircleIcon,
   LocationOn as LocationOnIcon,
+  KeyboardArrowUp as KeyboardArrowUpIcon,
+  KeyboardArrowDown as KeyboardArrowDownIcon
 } from '@mui/icons-material';
-import { supabase } from '../../lib/supabaseClient';
-import { weatherService } from '../../lib/services';
+import { weatherService, WeatherSettings } from '../../lib/services/weatherService';
+import { useAuth } from '../../hooks/useAuth';
+import { ApiResponse } from '../../lib/services/api';
+import { format } from 'date-fns';
+import { ThemeProvider, createTheme } from '@mui/material/styles';
+import CssBaseline from '@mui/material/CssBaseline';
+import useMediaQuery from '@mui/material/useMediaQuery';
+
+// Weather location type
+interface WeatherLocation {
+  name: string;
+  lat: number;
+  lon: number;
+}
+
+// Define interface for settings state
+interface WeatherSettings {
+  location_name: string;
+  location_lat: number;
+  location_lon: number;
+  units: string;
+  update_interval: number;
+}
+
+// Interfaces
+interface WeatherCondition {
+  id: number;
+  main: string;
+  description: string;
+  icon: string;
+}
+
+interface CurrentWeather {
+  dt: number;
+  main: {
+    temp: number;
+    feels_like: number;
+    temp_min: number;
+    temp_max: number;
+    pressure: number;
+    humidity: number;
+  };
+  weather: WeatherCondition[];
+  wind: {
+    speed: number;
+    deg: number;
+  };
+  clouds: {
+    all: number;
+  };
+  rain?: {
+    '1h'?: number;
+    '3h'?: number;
+  };
+  snow?: {
+    '1h'?: number;
+    '3h'?: number;
+  };
+  visibility: number;
+  name: string;
+}
+
+interface ForecastItem {
+  dt: number;
+  main: {
+    temp: number;
+    feels_like: number;
+    temp_min: number;
+    temp_max: number;
+    pressure: number;
+    humidity: number;
+  };
+  weather: WeatherCondition[];
+  wind: {
+    speed: number;
+    deg: number;
+  };
+  visibility: number;
+  pop: number; // Probability of precipitation
+  rain?: {
+    '3h'?: number;
+  };
+  snow?: {
+    '3h'?: number;
+  };
+  dt_txt: string;
+}
+
+interface Alert {
+  id: string;
+  type: 'temperature' | 'wind' | 'rain' | 'snow';
+  description: string;
+  timestamp: number;
+  severity: 'info' | 'warning' | 'error';
+  acknowledged: boolean;
+}
+
+interface Threshold {
+  highTemp: number;
+  lowTemp: number;
+  highWind: number;
+  rainAmount: number;
+  snowAmount: number;
+}
 
 // Mock data for weather forecast
 const mockForecasts = [
@@ -169,1000 +276,792 @@ const mockThresholds = {
   updateFrequency: 60, // minutes
 };
 
+// Location object structure matching what we need
+interface Location {
+  name: string;
+  lat: number;
+  lon: number;
+}
+
+// Default location if user hasn't set one
+const DEFAULT_LOCATION: Location = {
+  name: 'Kerrville, TX',
+  lat: 30.0469,
+  lon: -99.1403
+};
+
 const WeatherMonitoring: React.FC = () => {
-  const [forecasts, setForecasts] = useState(mockForecasts);
-  const [alerts, setAlerts] = useState(mockAlerts);
-  const [thresholds, setThresholds] = useState(mockThresholds);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [selectedDate, setSelectedDate] = useState('all');
-  const [alertDialogOpen, setAlertDialogOpen] = useState(false);
-  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
-  const [openForecastSettings, setOpenForecastSettings] = useState(false);
-  const [forecastSettings, setForecastSettings] = useState<any>(null);
-  const [newAlert, setNewAlert] = useState({
-    type: '',
-    severity: 'moderate',
-    description: '',
-    startTime: '',
-    endTime: '',
-  });
-  const [forecastFormData, setForecastFormData] = useState({
-    api_key: weatherService.DEFAULT_LOCATION.api_key,
-    location_lat: weatherService.DEFAULT_LOCATION.lat,
-    location_lon: weatherService.DEFAULT_LOCATION.lon,
-    location_name: weatherService.DEFAULT_LOCATION.name,
-    update_interval: 3600,
-  });
-  const [locationSearch, setLocationSearch] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
-  const [searching, setSearching] = useState(false);
-  const [currentWeather, setCurrentWeather] = useState<any>(null);
-  const [weatherForecast, setWeatherForecast] = useState<any>(null);
-
-  useEffect(() => {
-    fetchWeatherData();
-    fetchForecastSettings();
-  }, []);
-
-  const fetchWeatherData = async () => {
+  const { user } = useAuth();
+  const prefersDarkMode = useMediaQuery('(prefers-color-scheme: dark)');
+  
+  // State for weather data
+  const [currentWeather, setCurrentWeather] = useState<CurrentWeather | null>(null);
+  const [forecast, setForecast] = useState<ForecastItem[]>([]);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshTime, setRefreshTime] = useState<Date>(new Date());
+  
+  // State for user settings
+  const [location, setLocation] = useState<Location>(DEFAULT_LOCATION);
+  const [updateInterval, setUpdateInterval] = useState<number>(30); // minutes
+  const [units, setUnits] = useState<string>('imperial'); // imperial or metric
+  const [thresholds, setThresholds] = useState<Threshold>(mockThresholds as Threshold);
+  const [showSettingsDialog, setShowSettingsDialog] = useState<boolean>(false);
+  const [settingsLoading, setSettingsLoading] = useState<boolean>(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  
+  // Temporary settings for the dialog
+  const [tempLocation, setTempLocation] = useState<Location>(location);
+  const [tempUpdateInterval, setTempUpdateInterval] = useState<number>(updateInterval);
+  const [tempUnits, setTempUnits] = useState<string>(units);
+  const [tempThresholds, setTempThresholds] = useState<Threshold>(thresholds);
+  
+  // Create theme based on user preference
+  const theme = React.useMemo(
+    () =>
+      createTheme({
+        palette: {
+          mode: prefersDarkMode ? 'dark' : 'light',
+          primary: {
+            main: '#1976d2',
+          },
+          secondary: {
+            main: '#dc004e',
+          },
+        },
+      }),
+    [prefersDarkMode],
+  );
+  
+  // Function to fetch weather data
+  const fetchWeatherData = useCallback(async () => {
+    if (!user) return;
+    
     setLoading(true);
-    setError('');
+    setError(null);
+    
     try {
-      // Get current weather and forecast from OpenWeather API
-      console.log('Fetching weather data from OpenWeather API...');
-      const [currentResponse, forecastResponse] = await Promise.all([
-        weatherService.getCurrentWeather(),
-        weatherService.getWeatherForecast()
-      ]);
+      // Check if we should use mock data
+      const useMockData = import.meta.env.VITE_USE_MOCK_DATA === 'true';
       
-      if (currentResponse.error) {
-        console.error('Error fetching current weather:', currentResponse.error);
-        // Don't show API errors directly to users, just set a generic message
-        setError('Unable to fetch current weather data. Using mock data instead.');
-        // Continue with mock data
+      if (useMockData) {
+        console.log('Using mock weather data');
+        setTimeout(() => {
+          setCurrentWeather(generateMockCurrentWeather());
+          setForecast(generateMockForecast());
+          setAlerts(mockAlerts);
+          setLoading(false);
+          setRefreshTime(new Date());
+        }, 800);
       } else {
-        console.log('Current weather data received successfully');
-        setCurrentWeather(currentResponse.data);
-      }
-      
-      if (forecastResponse.error) {
-        console.error('Error fetching weather forecast:', forecastResponse.error);
-        // If we already showed an error for current weather, don't duplicate
-        if (!currentResponse.error) {
-          setError('Unable to fetch forecast data. Using mock data instead.');
-        }
-        // Continue with mock data
-      } else {
-        console.log('Weather forecast data received successfully');
-        setWeatherForecast(forecastResponse.data);
+        // Fetch real weather data
+        console.log('Fetching real weather data');
+        const [currentResponse, forecastResponse] = await Promise.all([
+          weatherService.getCurrentWeather(location.lat, location.lon),
+          weatherService.getWeatherForecast(location.lat, location.lon)
+        ]);
         
-        // Process forecast data into the format expected by the UI
-        if (forecastResponse.data && forecastResponse.data.list) {
-          const processedForecasts = forecastResponse.data.list.map(item => {
-            const date = new Date(item.dt * 1000);
-            return {
-              id: item.dt.toString(),
-              date: date.toISOString().split('T')[0],
-              time: date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              temperature: Math.round(item.main.temp),
-              conditions: item.weather[0].main,
-              precipitation: item.pop * 100, // Convert probability from 0-1 to percentage
-              humidity: item.main.humidity,
-              windSpeed: Math.round(item.wind.speed),
-            };
-          }).slice(0, 6); // Limit to first 6 forecasts for now
-          
-          setForecasts(processedForecasts);
+        if (currentResponse.error) {
+          throw new Error(currentResponse.error.message);
         }
+        
+        if (forecastResponse.error) {
+          throw new Error(forecastResponse.error.message);
+        }
+        
+        setCurrentWeather(currentResponse.data);
+        setForecast(forecastResponse.data.list);
+        checkForAlerts(currentResponse.data, forecastResponse.data.list);
+        setLoading(false);
+        setRefreshTime(new Date());
       }
     } catch (err) {
-      console.error('Error in fetchWeatherData:', err);
-      setError('There was a problem loading weather data. Using local data instead.');
-      // Keep using mock data in case of errors
-    } finally {
+      console.error('Error fetching weather data:', err);
+      setError(err instanceof Error ? err.message : 'An unknown error occurred');
       setLoading(false);
     }
-  };
-
-  const fetchForecastSettings = async () => {
-    try {
-      // Get weather settings from the database or defaults if table doesn't exist
-      const { data: settingsData, error: settingsError } = await weatherService.getWeatherSettings();
-      
-      if (settingsError) {
-        console.warn('Warning fetching weather settings:', settingsError);
-        // We'll still have default settings from the service, so no need to show error to user
-      }
-      
-      // We'll always have settings data, either from DB or defaults
-      setForecastSettings(settingsData || {
-        id: 'new',
-        api_key: weatherService.DEFAULT_LOCATION.api_key,
-        location_lat: weatherService.DEFAULT_LOCATION.lat,
-        location_lon: weatherService.DEFAULT_LOCATION.lon,
-        location_name: weatherService.DEFAULT_LOCATION.name,
-        update_interval: 3600,
-        last_updated: new Date().toISOString()
-      });
-      
-      setForecastFormData({
-        api_key: settingsData?.api_key || weatherService.DEFAULT_LOCATION.api_key,
-        location_lat: settingsData?.location_lat || weatherService.DEFAULT_LOCATION.lat,
-        location_lon: settingsData?.location_lon || weatherService.DEFAULT_LOCATION.lon,
-        location_name: settingsData?.location_name || weatherService.DEFAULT_LOCATION.name,
-        update_interval: settingsData?.update_interval || 3600,
-      });
-    } catch (err) {
-      console.error('Error in fetchForecastSettings:', err);
-      // Don't show error to user for settings issues, just use defaults
-      setForecastSettings({
-        id: 'new',
-        api_key: weatherService.DEFAULT_LOCATION.api_key,
-        location_lat: weatherService.DEFAULT_LOCATION.lat,
-        location_lon: weatherService.DEFAULT_LOCATION.lon,
-        location_name: weatherService.DEFAULT_LOCATION.name,
-        update_interval: 3600,
-        last_updated: new Date().toISOString()
-      });
-      
-      setForecastFormData({
-        api_key: weatherService.DEFAULT_LOCATION.api_key,
-        location_lat: weatherService.DEFAULT_LOCATION.lat,
-        location_lon: weatherService.DEFAULT_LOCATION.lon,
-        location_name: weatherService.DEFAULT_LOCATION.name,
-        update_interval: 3600,
+  }, [location, user]);
+  
+  // Check for weather alerts based on thresholds
+  const checkForAlerts = useCallback((current: CurrentWeather, forecastItems: ForecastItem[]) => {
+    const newAlerts: Alert[] = [];
+    
+    // Check current temperature against thresholds
+    if (current.main.temp > thresholds.highTemp) {
+      newAlerts.push({
+        id: `temp-high-${Date.now()}`,
+        type: 'temperature',
+        description: `High temperature alert: ${current.main.temp.toFixed(0)}°F current temperature exceeds threshold of ${thresholds.highTemp}°F`,
+        timestamp: Date.now(),
+        severity: 'warning',
+        acknowledged: false
       });
     }
-  };
-
-  const handleRefreshForecast = () => {
-    fetchWeatherData();
-  };
-
-  const handleAlertDialogOpen = () => {
-    setAlertDialogOpen(true);
-  };
-
-  const handleAlertDialogClose = () => {
-    setAlertDialogOpen(false);
-    setNewAlert({
-      type: '',
-      severity: 'moderate',
-      description: '',
-      startTime: '',
-      endTime: '',
+    
+    if (current.main.temp < thresholds.lowTemp) {
+      newAlerts.push({
+        id: `temp-low-${Date.now()}`,
+        type: 'temperature',
+        description: `Low temperature alert: ${current.main.temp.toFixed(0)}°F current temperature below threshold of ${thresholds.lowTemp}°F`,
+        timestamp: Date.now(),
+        severity: 'warning',
+        acknowledged: false
+      });
+    }
+    
+    // Check wind speed
+    if (current.wind.speed > thresholds.highWind) {
+      newAlerts.push({
+        id: `wind-high-${Date.now()}`,
+        type: 'wind',
+        description: `High wind alert: ${current.wind.speed.toFixed(0)} mph current wind speed exceeds threshold of ${thresholds.highWind} mph`,
+        timestamp: Date.now(),
+        severity: 'warning',
+        acknowledged: false
+      });
+    }
+    
+    // Check upcoming forecast for potential alerts
+    const next24Hours = forecastItems.filter(item => {
+      const itemDate = new Date(item.dt * 1000);
+      const now = new Date();
+      return itemDate.getTime() - now.getTime() < 24 * 60 * 60 * 1000;
     });
-  };
-
-  const handleSettingsDialogOpen = () => {
-    setSettingsDialogOpen(true);
-  };
-
-  const handleSettingsDialogClose = () => {
-    setSettingsDialogOpen(false);
-  };
-
-  const handleOpenForecastSettings = () => {
-    setOpenForecastSettings(true);
-  };
-
-  const handleCloseForecastSettings = () => {
-    setOpenForecastSettings(false);
-  };
-
-  const handleCreateAlert = () => {
-    const alert = {
-      id: `${Date.now()}`,
-      ...newAlert,
-      active: true,
-      createdAt: new Date().toISOString(),
-    };
-    setAlerts([alert, ...alerts]);
-    handleAlertDialogClose();
-  };
-
-  const handleResolveAlert = (alertId: string) => {
-    setAlerts(
-      alerts.map((alert) =>
-        alert.id === alertId ? { ...alert, active: false } : alert
+    
+    // Check for rain
+    const rainForecast = next24Hours.find(item => item.rain && item.rain['3h'] && item.rain['3h'] > thresholds.rainAmount);
+    if (rainForecast) {
+      newAlerts.push({
+        id: `rain-${Date.now()}`,
+        type: 'rain',
+        description: `Rain alert: ${rainForecast.rain?.['3h']?.toFixed(1)} inches expected in the next 24 hours, exceeding threshold of ${thresholds.rainAmount} inches`,
+        timestamp: Date.now(),
+        severity: 'info',
+        acknowledged: false
+      });
+    }
+    
+    // Check for snow
+    const snowForecast = next24Hours.find(item => item.snow && item.snow['3h'] && item.snow['3h'] > thresholds.snowAmount);
+    if (snowForecast) {
+      newAlerts.push({
+        id: `snow-${Date.now()}`,
+        type: 'snow',
+        description: `Snow alert: ${snowForecast.snow?.['3h']?.toFixed(1)} inches expected in the next 24 hours, exceeding threshold of ${thresholds.snowAmount} inches`,
+        timestamp: Date.now(),
+        severity: 'info',
+        acknowledged: false
+      });
+    }
+    
+    // Add new alerts to existing unacknowledged alerts
+    setAlerts(prev => {
+      const unacknowledged = prev.filter(a => !a.acknowledged);
+      return [...unacknowledged, ...newAlerts];
+    });
+  }, [thresholds]);
+  
+  // Handle acknowledging an alert
+  const handleAcknowledgeAlert = (id: string) => {
+    setAlerts(prev => 
+      prev.map(alert => 
+        alert.id === id ? { ...alert, acknowledged: true } : alert
       )
     );
   };
-
-  const handleDeleteAlert = (alertId: string) => {
-    setAlerts(alerts.filter((alert) => alert.id !== alertId));
+  
+  // Handle dismissing an alert
+  const handleDismissAlert = (id: string) => {
+    setAlerts(prev => prev.filter(alert => alert.id !== id));
   };
-
-  const handleSaveSettings = () => {
-    // In a real app, this would save to the backend
-    handleSettingsDialogClose();
-  };
-
-  const getWeatherIcon = (condition: string) => {
-    switch (condition.toLowerCase()) {
-      case 'sunny':
-      case 'clear':
-        return <SunnyIcon sx={{ color: 'orange' }} />;
-      case 'partly cloudy':
-      case 'cloudy':
-        return <CloudyIcon sx={{ color: 'grey' }} />;
-      case 'rain':
-        return <RainIcon sx={{ color: 'blue' }} />;
-      case 'snow':
-        return <SnowIcon sx={{ color: 'lightblue' }} />;
-      case 'thunderstorm':
-        return <StormIcon sx={{ color: 'purple' }} />;
-      default:
-        return <CloudyIcon sx={{ color: 'grey' }} />;
-    }
-  };
-
-  const getSeverityColor = (severity: string) => {
-    switch (severity) {
-      case 'critical':
-        return 'error';
-      case 'high':
-        return 'warning';
-      case 'moderate':
-        return 'info';
-      case 'low':
-        return 'success';
-      default:
-        return 'default';
-    }
-  };
-
-  const formatDateTime = (dateTimeString: string) => {
-    const date = new Date(dateTimeString);
-    return date.toLocaleString();
-  };
-
-  // Filter forecasts by selected date
-  const filteredForecasts = selectedDate === 'all'
-    ? forecasts
-    : forecasts.filter(forecast => forecast.date === selectedDate);
-
-  // Get unique dates for filter
-  const dates = [...new Set(forecasts.map(forecast => forecast.date))];
-
-  const handleUpdateForecastSettings = async () => {
-    try {
-      if (!forecastFormData) return;
-
-      const { error } = await weatherService.updateWeatherSettings({
-        api_key: forecastFormData.api_key,
-        location_lat: forecastFormData.location_lat,
-        location_lon: forecastFormData.location_lon,
-        location_name: forecastFormData.location_name || 'Kerrville, TX',
-        update_interval: forecastFormData.update_interval,
-      });
-      
-      if (error) {
-        console.error('Error updating settings:', error);
-        setError('Could not save settings to database. Settings will apply for this session only.');
-      }
-      
-      // Refresh data with new settings - will use the memory settings even if DB failed
-      await fetchForecastSettings();
-      await fetchWeatherData();
-      handleCloseForecastSettings();
-    } catch (err) {
-      console.error('Error in handleUpdateForecastSettings:', err);
-      setError('Error saving settings. Changes will apply for this session only.');
-    }
-  };
-
-  const handleSearchLocation = async () => {
-    if (!locationSearch.trim()) return;
+  
+  // Load user settings
+  const loadUserSettings = useCallback(async () => {
+    if (!user) return;
     
-    setSearching(true);
-    setError('');
+    setSettingsLoading(true);
+    setSettingsError(null);
+    
     try {
-      // Use the OpenWeatherMap Geocoding API to search for locations
-      const response = await fetch(
-        `https://api.openweathermap.org/geo/1.0/direct?q=${encodeURIComponent(locationSearch)}&limit=5&appid=${weatherService.DEFAULT_LOCATION.api_key}`
-      );
+      // Check if we should use mock data
+      const useMockData = import.meta.env.VITE_USE_MOCK_DATA === 'true';
       
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(`API Error (${response.status}): ${errorData.message || 'Unknown error'}`);
+      if (useMockData) {
+        console.log('Using mock settings');
+        // Just use the default settings
+        setTimeout(() => {
+          setSettingsLoading(false);
+        }, 500);
+      } else {
+        // Load real user settings from the service
+        console.log('Loading real user settings');
+        const response = await weatherService.getSettings(user.id);
+        
+        if (response.error) {
+          throw new Error(response.error.message);
+        }
+        
+        if (response.data) {
+          const settings = response.data;
+          setLocation({
+            name: settings.location_name,
+            lat: settings.location_lat,
+            lon: settings.location_lon
+          });
+          setUpdateInterval(settings.update_interval);
+          setUnits(settings.units);
+          
+          // Also update the temporary settings
+          setTempLocation({
+            name: settings.location_name,
+            lat: settings.location_lat,
+            lon: settings.location_lon
+          });
+          setTempUpdateInterval(settings.update_interval);
+          setTempUnits(settings.units);
+        }
+        
+        setSettingsLoading(false);
       }
-      
-      const data = await response.json();
-      
-      if (!data || data.length === 0) {
-        setError(`No locations found matching "${locationSearch}". Try a different search.`);
-      }
-      
-      setSearchResults(data);
     } catch (err) {
-      console.error('Error searching location:', err);
-      setError('Unable to search for locations. Please check your connection and try again.');
-    } finally {
-      setSearching(false);
+      console.error('Error loading user settings:', err);
+      setSettingsError(err instanceof Error ? err.message : 'Failed to load settings');
+      setSettingsLoading(false);
+    }
+  }, [user]);
+  
+  // Save user settings
+  const saveUserSettings = async () => {
+    if (!user) return;
+    
+    setSettingsLoading(true);
+    setSettingsError(null);
+    
+    try {
+      // Apply the temporary settings to the actual settings
+      setLocation(tempLocation);
+      setUpdateInterval(tempUpdateInterval);
+      setUnits(tempUnits);
+      setThresholds(tempThresholds);
+      
+      // Check if we should use mock data
+      const useMockData = import.meta.env.VITE_USE_MOCK_DATA === 'true';
+      
+      if (!useMockData) {
+        // Save the settings to the database
+        console.log('Saving real user settings');
+        const settingsToSave: WeatherSettings = {
+          location_name: tempLocation.name,
+          location_lat: tempLocation.lat,
+          location_lon: tempLocation.lon,
+          units: tempUnits,
+          update_interval: tempUpdateInterval
+        };
+        
+        const response = await weatherService.saveSettings(user.id, settingsToSave);
+        
+        if (response.error) {
+          throw new Error(response.error.message);
+        }
+      }
+      
+      setSettingsLoading(false);
+      setShowSettingsDialog(false);
+      
+      // Fetch new weather data with updated settings
+      fetchWeatherData();
+    } catch (err) {
+      console.error('Error saving user settings:', err);
+      setSettingsError(err instanceof Error ? err.message : 'Failed to save settings');
+      setSettingsLoading(false);
     }
   };
-
-  const handleSelectLocation = (location) => {
-    setForecastFormData({
-      ...forecastFormData,
-      location_lat: location.lat,
-      location_lon: location.lon,
-      location_name: `${location.name}, ${location.state || ''} ${location.country || ''}`.trim(),
+  
+  // Initialize component
+  useEffect(() => {
+    if (user) {
+      loadUserSettings();
+    }
+  }, [user, loadUserSettings]);
+  
+  // Fetch weather data on load and when settings change
+  useEffect(() => {
+    if (user) {
+      fetchWeatherData();
+      
+      // Set up interval for refreshing data
+      const interval = setInterval(() => {
+        fetchWeatherData();
+      }, updateInterval * 60 * 1000);
+      
+      return () => clearInterval(interval);
+    }
+  }, [fetchWeatherData, updateInterval, user]);
+  
+  // Open settings dialog
+  const handleOpenSettings = () => {
+    // Initialize temporary settings with current values
+    setTempLocation(location);
+    setTempUpdateInterval(updateInterval);
+    setTempUnits(units);
+    setTempThresholds(thresholds);
+    setShowSettingsDialog(true);
+  };
+  
+  // Get weather icon URL
+  const getWeatherIconUrl = (icon: string) => {
+    return `https://openweathermap.org/img/wn/${icon}@2x.png`;
+  };
+  
+  // Get current weather component
+  const getCurrentWeatherComponent = () => {
+    if (!currentWeather) return null;
+    
+    return (
+      <Card elevation={3} sx={{ height: '100%' }}>
+        <CardContent>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <Typography variant="h5" gutterBottom>Current Weather</Typography>
+            <Box>
+              <Tooltip title="Location">
+                <LocationOnIcon color="primary" />
+              </Tooltip>
+              <Typography variant="body1" component="span" sx={{ ml: 1 }}>
+                {location.name}
+              </Typography>
+            </Box>
+          </Box>
+          
+          <Box sx={{ display: 'flex', alignItems: 'center', mt: 2 }}>
+            <img 
+              src={getWeatherIconUrl(currentWeather.weather[0].icon)} 
+              alt={currentWeather.weather[0].description}
+              style={{ width: 80, height: 80 }}
+            />
+            <Box sx={{ ml: 2 }}>
+              <Typography variant="h3">{currentWeather.main.temp.toFixed(0)}°F</Typography>
+              <Typography variant="body1">{currentWeather.weather[0].description}</Typography>
+            </Box>
+          </Box>
+          
+          <Grid container spacing={2} sx={{ mt: 2 }}>
+            <Grid item xs={6}>
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <ThermostatIcon color="primary" sx={{ mr: 1 }} />
+                <Box>
+                  <Typography variant="body2">Feels Like</Typography>
+                  <Typography variant="body1">{currentWeather.main.feels_like.toFixed(0)}°F</Typography>
+                </Box>
+              </Box>
+            </Grid>
+            <Grid item xs={6}>
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <AirIcon color="primary" sx={{ mr: 1 }} />
+                <Box>
+                  <Typography variant="body2">Wind</Typography>
+                  <Typography variant="body1">{currentWeather.wind.speed.toFixed(1)} mph</Typography>
+                </Box>
+              </Box>
+            </Grid>
+            <Grid item xs={6}>
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <WaterIcon color="primary" sx={{ mr: 1 }} />
+                <Box>
+                  <Typography variant="body2">Humidity</Typography>
+                  <Typography variant="body1">{currentWeather.main.humidity}%</Typography>
+                </Box>
+              </Box>
+            </Grid>
+            <Grid item xs={6}>
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <CloudIcon color="primary" sx={{ mr: 1 }} />
+                <Box>
+                  <Typography variant="body2">Cloud Cover</Typography>
+                  <Typography variant="body1">{currentWeather.clouds.all}%</Typography>
+                </Box>
+              </Box>
+            </Grid>
+          </Grid>
+          
+          <Divider sx={{ my: 2 }} />
+          
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography variant="body2" color="textSecondary">
+              Updated: {format(refreshTime, 'MMM d, h:mm a')}
+            </Typography>
+            <Tooltip title="Refresh">
+              <IconButton onClick={fetchWeatherData} disabled={loading}>
+                <RefreshIcon />
+              </IconButton>
+            </Tooltip>
+          </Box>
+        </CardContent>
+      </Card>
+    );
+  };
+  
+  // Get forecast component
+  const getForecastComponent = () => {
+    if (forecast.length === 0) return null;
+    
+    // Group forecast by day
+    const forecastByDay: Record<string, ForecastItem[]> = {};
+    forecast.forEach(item => {
+      const date = new Date(item.dt * 1000);
+      const day = format(date, 'yyyy-MM-dd');
+      if (!forecastByDay[day]) {
+        forecastByDay[day] = [];
+      }
+      forecastByDay[day].push(item);
     });
-    setSearchResults([]);
-    setLocationSearch('');
+    
+    return (
+      <Card elevation={3} sx={{ height: '100%' }}>
+        <CardContent>
+          <Typography variant="h5" gutterBottom>5-Day Forecast</Typography>
+          
+          <Box sx={{ overflowX: 'auto' }}>
+            <Box sx={{ display: 'flex', mt: 2, pb: 1 }}>
+              {Object.entries(forecastByDay).map(([day, items], index) => {
+                // Get the day's high and low
+                const temps = items.map(item => item.main.temp);
+                const highTemp = Math.max(...temps);
+                const lowTemp = Math.min(...temps);
+                
+                // Get the most common weather condition
+                const weatherCounts: Record<string, number> = {};
+                items.forEach(item => {
+                  const cond = item.weather[0].main;
+                  weatherCounts[cond] = (weatherCounts[cond] || 0) + 1;
+                });
+                const mainWeather = Object.entries(weatherCounts).reduce((a, b) => a[1] > b[1] ? a : b)[0];
+                const iconItem = items.find(item => item.weather[0].main === mainWeather);
+                const icon = iconItem ? iconItem.weather[0].icon : items[0].weather[0].icon;
+                
+                // Check for precipitation
+                const hasPrecipitation = items.some(item => 
+                  (item.rain && item.rain['3h'] && item.rain['3h'] > 0) || 
+                  (item.snow && item.snow['3h'] && item.snow['3h'] > 0)
+                );
+                
+                // Calculate total precipitation if any
+                let totalPrecip = 0;
+                items.forEach(item => {
+                  if (item.rain && item.rain['3h']) {
+                    totalPrecip += item.rain['3h'];
+                  }
+                  if (item.snow && item.snow['3h']) {
+                    totalPrecip += item.snow['3h'];
+                  }
+                });
+                
+                return (
+                  <Box key={day} sx={{ 
+                    minWidth: 120, 
+                    mx: 1, 
+                    p: 1, 
+                    border: '1px solid',
+                    borderColor: 'divider',
+                    borderRadius: 1,
+                    textAlign: 'center'
+                  }}>
+                    <Typography variant="body1">
+                      {format(new Date(day), 'EEE, MMM d')}
+                    </Typography>
+                    <img 
+                      src={getWeatherIconUrl(icon)} 
+                      alt={mainWeather}
+                      style={{ width: 50, height: 50, margin: '0 auto' }}
+                    />
+                    <Typography variant="body2">{mainWeather}</Typography>
+                    <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', mt: 1 }}>
+                      <KeyboardArrowUpIcon fontSize="small" color="error" />
+                      <Typography variant="body2" sx={{ mr: 1 }}>{highTemp.toFixed(0)}°</Typography>
+                      <KeyboardArrowDownIcon fontSize="small" color="primary" />
+                      <Typography variant="body2">{lowTemp.toFixed(0)}°</Typography>
+                    </Box>
+                    {hasPrecipitation && (
+                      <Typography variant="body2" sx={{ mt: 1 }}>
+                        Precip: {totalPrecip.toFixed(1)}"
+                      </Typography>
+                    )}
+                  </Box>
+                );
+              })}
+            </Box>
+          </Box>
+        </CardContent>
+      </Card>
+    );
   };
-
-  // Render current weather card with real data if available
-  const renderCurrentWeather = () => {
-    if (currentWeather && currentWeather.main && currentWeather.weather && currentWeather.weather.length > 0) {
-      return (
-        <Paper sx={{ p: 3 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-            <Typography variant="h6" component="h2" sx={{ flexGrow: 1 }}>
-              Current Weather in {forecastFormData.location_name || 'Kerrville, TX'}
-            </Typography>
-            <Box sx={{ fontSize: '2.5rem' }}>
-              {getWeatherIcon(currentWeather.weather[0].main)}
-            </Box>
+  
+  // Get alerts component
+  const getAlertsComponent = () => {
+    return (
+      <Card elevation={3} sx={{ height: '100%' }}>
+        <CardContent>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+            <Typography variant="h5">Weather Alerts</Typography>
+            <Tooltip title="Alert Settings">
+              <IconButton onClick={handleOpenSettings}>
+                <NotificationsIcon />
+              </IconButton>
+            </Tooltip>
           </Box>
-          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-            <Typography variant="h3" component="div" sx={{ mr: 2 }}>
-              {Math.round(currentWeather.main.temp)}°F
-            </Typography>
-            <Typography variant="body1" color="text.secondary">
-              {currentWeather.weather[0].description}
-            </Typography>
-          </Box>
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
-            <Box>
-              <Typography variant="body2" color="text.secondary">
-                Humidity
+          
+          {alerts.length === 0 ? (
+            <Box sx={{ 
+              display: 'flex', 
+              flexDirection: 'column', 
+              alignItems: 'center', 
+              justifyContent: 'center',
+              py: 3 
+            }}>
+              <CloudOffIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
+              <Typography variant="body1" color="textSecondary">
+                No active weather alerts
               </Typography>
-              <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                <RainIcon sx={{ mr: 0.5, fontSize: '1rem' }} />
-                <Typography>{currentWeather.main.humidity}%</Typography>
-              </Box>
             </Box>
-            <Box>
-              <Typography variant="body2" color="text.secondary">
-                Wind
-              </Typography>
-              <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                <WindIcon sx={{ mr: 0.5, fontSize: '1rem' }} />
-                <Typography>{Math.round(currentWeather.wind.speed)} mph</Typography>
-              </Box>
-            </Box>
-            <Box>
-              <Typography variant="body2" color="text.secondary">
-                Feels Like
-              </Typography>
-              <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                <SunnyIcon sx={{ mr: 0.5, fontSize: '1rem' }} />
-                <Typography>{Math.round(currentWeather.main.feels_like)}°F</Typography>
-              </Box>
-            </Box>
-          </Box>
-        </Paper>
-      );
-    } else {
-      // Fallback to mock data if API data not available
-      return (
-        <Paper sx={{ p: 3 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-            <Typography variant="h6" component="h2" sx={{ flexGrow: 1 }}>
-              Current Weather in {forecastFormData.location_name || 'Kerrville, TX'}
-            </Typography>
-            <Box sx={{ fontSize: '2.5rem' }}>
-              {getWeatherIcon(forecasts[0].conditions)}
-            </Box>
-          </Box>
-          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-            <Typography variant="h3" component="div" sx={{ mr: 2 }}>
-              {forecasts[0].temperature}°F
-            </Typography>
-            <Typography variant="body1" color="text.secondary">
-              {forecasts[0].conditions}
-            </Typography>
-          </Box>
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
-            <Box>
-              <Typography variant="body2" color="text.secondary">
-                Precipitation
-              </Typography>
-              <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                <RainIcon sx={{ mr: 0.5, fontSize: '1rem' }} />
-                <Typography>{forecasts[0].precipitation}%</Typography>
-              </Box>
-            </Box>
-            <Box>
-              <Typography variant="body2" color="text.secondary">
-                Humidity
-              </Typography>
-              <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                <RainIcon sx={{ mr: 0.5, fontSize: '1rem' }} />
-                <Typography>{forecasts[0].humidity}%</Typography>
-              </Box>
-            </Box>
-            <Box>
-              <Typography variant="body2" color="text.secondary">
-                Wind
-              </Typography>
-              <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                <WindIcon sx={{ mr: 0.5, fontSize: '1rem' }} />
-                <Typography>{forecasts[0].windSpeed} mph</Typography>
-              </Box>
-            </Box>
-          </Box>
-        </Paper>
-      );
-    }
-  };
-
-  return (
-    <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h4" component="h1">
-          Weather Monitoring
-        </Typography>
-        <Box>
-          <Button
-            variant="outlined"
-            color="primary"
-            startIcon={<RefreshIcon />}
-            onClick={handleRefreshForecast}
-            sx={{ mr: 1 }}
-            disabled={loading}
-          >
-            {loading ? <CircularProgress size={24} /> : 'Refresh Forecast'}
-          </Button>
-          <Button
-            variant="contained"
-            color="primary"
-            onClick={handleSettingsDialogOpen}
-            sx={{ mr: 1 }}
-          >
-            Alert Settings
-          </Button>
-          <Button
-            variant="contained"
-            color="secondary"
-            onClick={handleOpenForecastSettings}
-          >
-            Location Settings
-          </Button>
-        </Box>
-      </Box>
-
-      {error && (
-        <Alert 
-          severity="warning" 
-          sx={{ mb: 3 }} 
-          onClose={() => setError('')}
-        >
-          {error}
-        </Alert>
-      )}
-
-      <Grid container spacing={3}>
-        {/* Current Weather Card */}
-        <Grid item xs={12} md={6}>
-          {renderCurrentWeather()}
-        </Grid>
-
-        {/* Active Alerts Card */}
-        <Grid item xs={12} md={6}>
-          <Paper sx={{ p: 3 }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-              <Typography variant="h6" component="h2">
-                Weather Alerts
-              </Typography>
-              <Button
-                variant="contained"
-                size="small"
-                startIcon={<AddIcon />}
-                onClick={handleAlertDialogOpen}
-              >
-                Create Alert
-              </Button>
-            </Box>
-            {alerts.filter(alert => alert.active).length === 0 ? (
-              <Alert severity="success">
-                <AlertTitle>No Active Alerts</AlertTitle>
-                Weather conditions look good for planned activities.
-              </Alert>
-            ) : (
-              <Box>
-                {alerts.filter(alert => alert.active).map((alert) => (
-                  <Alert 
-                    key={alert.id} 
-                    severity={getSeverityColor(alert.severity)}
-                    sx={{ mb: 2 }}
-                    action={
-                      <Box>
-                        <Button 
-                          size="small" 
-                          onClick={() => handleResolveAlert(alert.id)}
-                        >
-                          Resolve
-                        </Button>
+          ) : (
+            <Box sx={{ maxHeight: 300, overflowY: 'auto' }}>
+              {alerts.map(alert => (
+                <Alert 
+                  key={alert.id}
+                  severity={alert.severity}
+                  sx={{ mb: 2 }}
+                  action={
+                    <Box>
+                      <Tooltip title={alert.acknowledged ? "Dismiss" : "Acknowledge"}>
                         <IconButton 
                           size="small" 
-                          onClick={() => handleDeleteAlert(alert.id)}
+                          onClick={() => alert.acknowledged 
+                            ? handleDismissAlert(alert.id) 
+                            : handleAcknowledgeAlert(alert.id)
+                          }
                         >
-                          <DeleteIcon />
+                          {alert.acknowledged ? <DeleteIcon /> : <RefreshIcon />}
                         </IconButton>
-                      </Box>
-                    }
-                  >
-                    <AlertTitle>{alert.type}</AlertTitle>
-                    {alert.description}<br />
-                    <Typography variant="caption">
-                      {formatDateTime(alert.startTime)} - {formatDateTime(alert.endTime)}
-                    </Typography>
-                  </Alert>
-                ))}
-              </Box>
-            )}
-          </Paper>
-        </Grid>
-
-        {/* Weather Forecast Table */}
-        <Grid item xs={12}>
-          <Paper sx={{ p: 3 }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-              <Typography variant="h6" component="h2">
-                Weather Forecast
-              </Typography>
-              <Box>
-                <Button
-                  variant={selectedDate === 'all' ? 'contained' : 'outlined'}
-                  size="small"
-                  onClick={() => setSelectedDate('all')}
-                  sx={{ mr: 1 }}
+                      </Tooltip>
+                    </Box>
+                  }
                 >
-                  All Days
-                </Button>
-                {dates.map(date => (
-                  <Button
-                    key={date}
-                    variant={selectedDate === date ? 'contained' : 'outlined'}
-                    size="small"
-                    onClick={() => setSelectedDate(date)}
-                    sx={{ mr: 1 }}
-                  >
-                    {new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                  </Button>
-                ))}
-              </Box>
+                  <Typography variant="body2">
+                    {alert.description}
+                  </Typography>
+                  <Typography variant="caption" display="block" color="textSecondary">
+                    {format(new Date(alert.timestamp), 'MMM d, h:mm a')}
+                  </Typography>
+                </Alert>
+              ))}
             </Box>
-            <TableContainer>
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Date</TableCell>
-                    <TableCell>Time</TableCell>
-                    <TableCell>Conditions</TableCell>
-                    <TableCell>Temperature</TableCell>
-                    <TableCell>Precipitation</TableCell>
-                    <TableCell>Wind</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {filteredForecasts.map((forecast) => (
-                    <TableRow key={forecast.id}>
-                      <TableCell>
-                        {new Date(forecast.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-                      </TableCell>
-                      <TableCell>{forecast.time}</TableCell>
-                      <TableCell>
-                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                          {getWeatherIcon(forecast.conditions)}
-                          <Typography sx={{ ml: 1 }}>{forecast.conditions}</Typography>
-                        </Box>
-                      </TableCell>
-                      <TableCell>{forecast.temperature}°F</TableCell>
-                      <TableCell>{forecast.precipitation}%</TableCell>
-                      <TableCell>{forecast.windSpeed} mph</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </Paper>
-        </Grid>
-      </Grid>
-
-      {/* Create Alert Dialog */}
-      <Dialog open={alertDialogOpen} onClose={handleAlertDialogClose} maxWidth="sm" fullWidth>
-        <DialogTitle>Create Weather Alert</DialogTitle>
+          )}
+        </CardContent>
+      </Card>
+    );
+  };
+  
+  // Settings dialog
+  const getSettingsDialog = () => {
+    return (
+      <Dialog open={showSettingsDialog} onClose={() => setShowSettingsDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Weather Settings</DialogTitle>
         <DialogContent>
-          <TextField
-            fullWidth
-            label="Alert Type"
-            value={newAlert.type}
-            onChange={(e) => setNewAlert({ ...newAlert, type: e.target.value })}
-            margin="normal"
-          />
-          <TextField
-            select
-            fullWidth
-            label="Severity"
-            value={newAlert.severity}
-            onChange={(e) => setNewAlert({ ...newAlert, severity: e.target.value })}
-            margin="normal"
-            SelectProps={{ native: true }}
-          >
-            <option value="critical">Critical</option>
-            <option value="high">High</option>
-            <option value="moderate">Moderate</option>
-            <option value="low">Low</option>
-          </TextField>
-          <TextField
-            fullWidth
-            label="Description"
-            value={newAlert.description}
-            onChange={(e) => setNewAlert({ ...newAlert, description: e.target.value })}
-            margin="normal"
-            multiline
-            rows={3}
-          />
-          <TextField
-            fullWidth
-            label="Start Time"
-            type="datetime-local"
-            value={newAlert.startTime}
-            onChange={(e) => setNewAlert({ ...newAlert, startTime: e.target.value })}
-            margin="normal"
-            InputLabelProps={{ shrink: true }}
-          />
-          <TextField
-            fullWidth
-            label="End Time"
-            type="datetime-local"
-            value={newAlert.endTime}
-            onChange={(e) => setNewAlert({ ...newAlert, endTime: e.target.value })}
-            margin="normal"
-            InputLabelProps={{ shrink: true }}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleAlertDialogClose}>Cancel</Button>
-          <Button
-            onClick={handleCreateAlert}
-            variant="contained"
-            color="primary"
-            disabled={
-              !newAlert.type ||
-              !newAlert.description ||
-              !newAlert.startTime ||
-              !newAlert.endTime
-            }
-          >
-            Create
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Weather Settings Dialog */}
-      <Dialog open={settingsDialogOpen} onClose={handleSettingsDialogClose} maxWidth="sm" fullWidth>
-        <DialogTitle>Weather Monitoring Settings</DialogTitle>
-        <DialogContent>
-          <Typography variant="subtitle1" gutterBottom>
-            Alert Thresholds
-          </Typography>
+          {settingsError && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {settingsError}
+            </Alert>
+          )}
           
-          <Box sx={{ mb: 3 }}>
-            <Typography variant="subtitle2" gutterBottom>
-              Temperature
-            </Typography>
-            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={thresholds.temperature.enabled}
-                    onChange={(e) =>
-                      setThresholds({
-                        ...thresholds,
-                        temperature: {
-                          ...thresholds.temperature,
-                          enabled: e.target.checked,
-                        },
-                      })
-                    }
-                  />
-                }
-                label="Enable Temperature Alerts"
-              />
-            </Box>
-            <Box sx={{ display: 'flex', gap: 2 }}>
-              <TextField
-                label="High (°F)"
-                type="number"
-                value={thresholds.temperature.high}
-                onChange={(e) =>
-                  setThresholds({
-                    ...thresholds,
-                    temperature: {
-                      ...thresholds.temperature,
-                      high: Number(e.target.value),
-                    },
-                  })
-                }
-                disabled={!thresholds.temperature.enabled}
-                sx={{ width: '50%' }}
-              />
-              <TextField
-                label="Low (°F)"
-                type="number"
-                value={thresholds.temperature.low}
-                onChange={(e) =>
-                  setThresholds({
-                    ...thresholds,
-                    temperature: {
-                      ...thresholds.temperature,
-                      low: Number(e.target.value),
-                    },
-                  })
-                }
-                disabled={!thresholds.temperature.enabled}
-                sx={{ width: '50%' }}
-              />
-            </Box>
-          </Box>
-
-          <Divider sx={{ my: 2 }} />
-          
-          <Box sx={{ mb: 3 }}>
-            <Typography variant="subtitle2" gutterBottom>
-              Precipitation
-            </Typography>
-            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={thresholds.precipitation.enabled}
-                    onChange={(e) =>
-                      setThresholds({
-                        ...thresholds,
-                        precipitation: {
-                          ...thresholds.precipitation,
-                          enabled: e.target.checked,
-                        },
-                      })
-                    }
-                  />
-                }
-                label="Enable Precipitation Alerts"
-              />
-            </Box>
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="subtitle1" gutterBottom>Location</Typography>
             <TextField
-              label="Threshold (%)"
-              type="number"
-              value={thresholds.precipitation.threshold}
-              onChange={(e) =>
-                setThresholds({
-                  ...thresholds,
-                  precipitation: {
-                    ...thresholds.precipitation,
-                    threshold: Number(e.target.value),
-                  },
-                })
-              }
-              disabled={!thresholds.precipitation.enabled}
-              sx={{ width: '50%' }}
+              label="Location Name"
+              value={tempLocation.name}
+              onChange={(e) => setTempLocation({ ...tempLocation, name: e.target.value })}
+              fullWidth
+              margin="normal"
+              helperText="Enter the name of your location (e.g. Kerrville, TX)"
             />
-          </Box>
-
-          <Divider sx={{ my: 2 }} />
-          
-          <Box sx={{ mb: 3 }}>
-            <Typography variant="subtitle2" gutterBottom>
-              Wind
-            </Typography>
-            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={thresholds.wind.enabled}
-                    onChange={(e) =>
-                      setThresholds({
-                        ...thresholds,
-                        wind: {
-                          ...thresholds.wind,
-                          enabled: e.target.checked,
-                        },
-                      })
-                    }
-                  />
-                }
-                label="Enable Wind Alerts"
-              />
-            </Box>
-            <TextField
-              label="Threshold (mph)"
-              type="number"
-              value={thresholds.wind.threshold}
-              onChange={(e) =>
-                setThresholds({
-                  ...thresholds,
-                  wind: {
-                    ...thresholds.wind,
-                    threshold: Number(e.target.value),
-                  },
-                })
-              }
-              disabled={!thresholds.wind.enabled}
-              sx={{ width: '50%' }}
-            />
-          </Box>
-
-          <Divider sx={{ my: 2 }} />
-          
-          <Box>
-            <Typography variant="subtitle2" gutterBottom>
-              Update Frequency
-            </Typography>
-            <TextField
-              label="Check Weather Every (minutes)"
-              type="number"
-              value={thresholds.updateFrequency}
-              onChange={(e) =>
-                setThresholds({
-                  ...thresholds,
-                  updateFrequency: Number(e.target.value),
-                })
-              }
-              sx={{ width: '50%' }}
-            />
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleSettingsDialogClose}>Cancel</Button>
-          <Button onClick={handleSaveSettings} variant="contained" color="primary">
-            Save Settings
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Location Settings Dialog */}
-      <Dialog 
-        open={openForecastSettings} 
-        onClose={handleCloseForecastSettings}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle>Weather Location Settings</DialogTitle>
-        <DialogContent>
-          <Box sx={{ mb: 3 }}>
-            <Typography variant="subtitle1" gutterBottom>
-              Default Location: Kerrville, TX
-            </Typography>
-            <Typography variant="body2" color="text.secondary" gutterBottom>
-              The OpenWeather API key is hardcoded to: {weatherService.DEFAULT_LOCATION.api_key}
-            </Typography>
-          </Box>
-          
-          <Box sx={{ mb: 3 }}>
-            <Typography variant="subtitle1" gutterBottom>
-              Search for Location
-            </Typography>
             <Grid container spacing={2}>
-              <Grid item xs={9}>
+              <Grid item xs={6}>
                 <TextField
+                  label="Latitude"
+                  type="number"
+                  value={tempLocation.lat}
+                  onChange={(e) => setTempLocation({ ...tempLocation, lat: parseFloat(e.target.value) })}
                   fullWidth
-                  label="City Name"
-                  value={locationSearch}
-                  onChange={(e) => setLocationSearch(e.target.value)}
+                  margin="normal"
                 />
               </Grid>
-              <Grid item xs={3}>
-                <Button
-                  variant="contained"
-                  onClick={handleSearchLocation}
-                  disabled={searching || !locationSearch.trim()}
-                  sx={{ height: '56px' }}
+              <Grid item xs={6}>
+                <TextField
+                  label="Longitude"
+                  type="number"
+                  value={tempLocation.lon}
+                  onChange={(e) => setTempLocation({ ...tempLocation, lon: parseFloat(e.target.value) })}
                   fullWidth
-                >
-                  {searching ? <CircularProgress size={24} /> : 'Search'}
-                </Button>
+                  margin="normal"
+                />
               </Grid>
             </Grid>
             
-            {searchResults.length > 0 && (
-              <Box sx={{ mt: 2 }}>
-                <Typography variant="subtitle2" gutterBottom>
-                  Search Results
-                </Typography>
-                <List dense>
-                  {searchResults.map((location, idx) => (
-                    <ListItem
-                      key={idx}
-                      button
-                      onClick={() => handleSelectLocation(location)}
-                    >
-                      <ListItemIcon>
-                        <LocationOnIcon />
-                      </ListItemIcon>
-                      <ListItemText
-                        primary={location.name}
-                        secondary={`${location.state || ''} ${location.country || ''}`}
-                      />
-                    </ListItem>
-                  ))}
-                </List>
-              </Box>
-            )}
-          </Box>
-
-          <Divider sx={{ my: 3 }} />
-          
-          <Box sx={{ mb: 3 }}>
-            <Typography variant="subtitle1" gutterBottom>
-              Location Coordinates
-            </Typography>
+            <Divider sx={{ my: 2 }} />
+            
+            <Typography variant="subtitle1" gutterBottom>Update Settings</Typography>
+            <TextField
+              select
+              label="Units"
+              value={tempUnits}
+              onChange={(e) => setTempUnits(e.target.value)}
+              fullWidth
+              margin="normal"
+            >
+              <MenuItem value="imperial">Imperial (°F, mph)</MenuItem>
+              <MenuItem value="metric">Metric (°C, km/h)</MenuItem>
+            </TextField>
+            
+            <TextField
+              label="Update Interval (minutes)"
+              type="number"
+              value={tempUpdateInterval}
+              onChange={(e) => setTempUpdateInterval(parseInt(e.target.value))}
+              fullWidth
+              margin="normal"
+              inputProps={{ min: 5, max: 120 }}
+              helperText="How often to refresh weather data (5-120 minutes)"
+            />
+            
+            <Divider sx={{ my: 2 }} />
+            
+            <Typography variant="subtitle1" gutterBottom>Alert Thresholds</Typography>
             <Grid container spacing={2}>
               <Grid item xs={6}>
                 <TextField
-                  fullWidth
-                  label="Latitude"
-                  value={forecastFormData.location_lat}
-                  onChange={(e) => setForecastFormData({
-                    ...forecastFormData,
-                    location_lat: parseFloat(e.target.value)
-                  })}
+                  label="High Temp (°F)"
                   type="number"
-                  inputProps={{ step: 0.000001 }}
+                  value={tempThresholds.highTemp}
+                  onChange={(e) => setTempThresholds({ ...tempThresholds, highTemp: parseInt(e.target.value) })}
+                  fullWidth
+                  margin="normal"
                 />
               </Grid>
               <Grid item xs={6}>
                 <TextField
-                  fullWidth
-                  label="Longitude"
-                  value={forecastFormData.location_lon}
-                  onChange={(e) => setForecastFormData({
-                    ...forecastFormData,
-                    location_lon: parseFloat(e.target.value)
-                  })}
+                  label="Low Temp (°F)"
                   type="number"
-                  inputProps={{ step: 0.000001 }}
+                  value={tempThresholds.lowTemp}
+                  onChange={(e) => setTempThresholds({ ...tempThresholds, lowTemp: parseInt(e.target.value) })}
+                  fullWidth
+                  margin="normal"
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  label="High Wind (mph)"
+                  type="number"
+                  value={tempThresholds.highWind}
+                  onChange={(e) => setTempThresholds({ ...tempThresholds, highWind: parseInt(e.target.value) })}
+                  fullWidth
+                  margin="normal"
+                />
+              </Grid>
+              <Grid item xs={6}>
+                <TextField
+                  label="Rain Amount (inches)"
+                  type="number"
+                  value={tempThresholds.rainAmount}
+                  onChange={(e) => setTempThresholds({ ...tempThresholds, rainAmount: parseFloat(e.target.value) })}
+                  fullWidth
+                  margin="normal"
+                />
+              </Grid>
+              <Grid item xs={6}>
+                <TextField
+                  label="Snow Amount (inches)"
+                  type="number"
+                  value={tempThresholds.snowAmount}
+                  onChange={(e) => setTempThresholds({ ...tempThresholds, snowAmount: parseFloat(e.target.value) })}
+                  fullWidth
+                  margin="normal"
                 />
               </Grid>
             </Grid>
           </Box>
-          
-          <Box>
-            <Typography variant="subtitle1" gutterBottom>
-              Update Interval
-            </Typography>
-            <TextField
-              fullWidth
-              label="Update Interval (seconds)"
-              value={forecastFormData.update_interval}
-              onChange={(e) => setForecastFormData({
-                ...forecastFormData,
-                update_interval: parseInt(e.target.value)
-              })}
-              type="number"
-              inputProps={{ min: 600, step: 600 }}
-              helperText="Minimum 600 seconds (10 minutes)"
-            />
-          </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCloseForecastSettings}>Cancel</Button>
+          <Button onClick={() => setShowSettingsDialog(false)}>Cancel</Button>
           <Button 
-            onClick={handleUpdateForecastSettings} 
+            onClick={saveUserSettings} 
             variant="contained" 
             color="primary"
+            disabled={settingsLoading}
           >
-            Save Settings
+            {settingsLoading ? <CircularProgress size={24} /> : 'Save Settings'}
           </Button>
         </DialogActions>
       </Dialog>
-    </Container>
+    );
+  };
+  
+  return (
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <Box sx={{ p: 3 }}>
+        <Paper elevation={0} sx={{ p: 2, mb: 3 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography variant="h4">
+              Weather Monitoring
+            </Typography>
+            <Box>
+              <Tooltip title="Settings">
+                <IconButton onClick={handleOpenSettings} sx={{ ml: 1 }}>
+                  <SettingsIcon />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Refresh">
+                <IconButton onClick={fetchWeatherData} disabled={loading} sx={{ ml: 1 }}>
+                  <RefreshIcon />
+                </IconButton>
+              </Tooltip>
+            </Box>
+          </Box>
+        </Paper>
+        
+        {error && (
+          <Alert severity="error" sx={{ mb: 3 }}>
+            {error}
+            <Button 
+              size="small" 
+              onClick={fetchWeatherData} 
+              sx={{ ml: 2 }}
+            >
+              Retry
+            </Button>
+          </Alert>
+        )}
+        
+        {loading ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', my: 5 }}>
+            <CircularProgress />
+          </Box>
+        ) : (
+          <Grid container spacing={3}>
+            <Grid item xs={12} md={4}>
+              {getCurrentWeatherComponent()}
+            </Grid>
+            <Grid item xs={12} md={8}>
+              {getForecastComponent()}
+            </Grid>
+            <Grid item xs={12}>
+              {getAlertsComponent()}
+            </Grid>
+          </Grid>
+        )}
+        
+        {getSettingsDialog()}
+      </Box>
+    </ThemeProvider>
   );
 };
 

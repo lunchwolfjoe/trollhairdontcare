@@ -53,7 +53,7 @@ interface DataTableProps<T> {
   sortConfig?: {
     key: string;
     direction: 'asc' | 'desc';
-  };
+  } | null;
   onSort?: (key: string) => void;
 }
 

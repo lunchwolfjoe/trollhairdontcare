@@ -1,6 +1,7 @@
 import { supabase } from '../supabaseClient';
 import { ApiResponse, handleError } from './api';
 import { Profile } from '../types/models';
+import type { User, Session } from '@supabase/supabase-js';
 
 /**
  * User registration data
@@ -22,16 +23,7 @@ export interface LoginData {
 /**
  * User session data
  */
-export interface SessionData {
-  user: {
-    id: string;
-    email: string;
-    user_metadata: any;
-  };
-  access_token: string;
-  refresh_token: string;
-  expires_at: number;
-}
+export type SessionData = Session;
 
 /**
  * Check if we're in development mode
@@ -99,6 +91,7 @@ export class AuthService {
         return {
           data: null,
           error: {
+            name: 'ApiError',
             status: 401,
             message: isDevelopment 
               ? 'Email confirmation required. In production, check your email. For development, see sql-solutions.md for workarounds.'
@@ -108,12 +101,7 @@ export class AuthService {
       }
 
       return {
-        data: {
-          user: authData.user,
-          access_token: authData.session.access_token,
-          refresh_token: authData.session.refresh_token,
-          expires_at: authData.session.expires_at,
-        },
+        data: authData.session,
         error: null,
       };
     } catch (error) {
@@ -138,8 +126,9 @@ export class AuthService {
         // If login failed due to email confirmation and we're in development
         if (isDevelopment && signInError.message.includes('Email not confirmed')) {
           // Try to look up the user
+          /* // Commenting out direct auth.users query
           const { data: userData } = await supabase
-            .from('auth.users')
+            .from('auth.users') 
             .select('id')
             .eq('email', data.email)
             .single();
@@ -154,6 +143,7 @@ export class AuthService {
               return this.login(data);
             }
           }
+          */
         }
         
         return {
@@ -163,12 +153,7 @@ export class AuthService {
       }
 
       return {
-        data: {
-          user: authData.user,
-          access_token: authData.session.access_token,
-          refresh_token: authData.session.refresh_token,
-          expires_at: authData.session.expires_at,
-        },
+        data: authData.session,
         error: null,
       };
     } catch (error) {
@@ -223,6 +208,7 @@ export class AuthService {
         return {
           data: null,
           error: {
+            name: 'ApiError',
             status: 401,
             message: 'No active session',
           },
@@ -230,12 +216,7 @@ export class AuthService {
       }
 
       return {
-        data: {
-          user: session.user,
-          access_token: session.access_token,
-          refresh_token: session.refresh_token,
-          expires_at: session.expires_at,
-        },
+        data: session,
         error: null,
       };
     } catch (error) {
@@ -318,6 +299,7 @@ export class AuthService {
       return {
         data: null,
         error: {
+          name: 'ApiError',
           status: 403,
           message: 'Method not available in production'
         }
@@ -361,6 +343,7 @@ export class AuthService {
       return {
         data: null,
         error: {
+          name: 'ApiError',
           status: 403,
           message: 'Test users can only be created in development mode'
         }
@@ -391,8 +374,9 @@ export class AuthService {
       }
 
       // If we couldn't sign in, try to confirm the email
+      /* // Commenting out direct auth.users query
       const { data: userData } = await supabase
-        .from('auth.users')
+        .from('auth.users') 
         .select('id')
         .eq('email', email)
         .single();
@@ -403,10 +387,12 @@ export class AuthService {
         // Try signing in again
         return this.login({ email, password });
       }
+      */
 
       return {
         data: null,
         error: {
+          name: 'ApiError',
           status: 500,
           message: 'Failed to create or confirm test user'
         }

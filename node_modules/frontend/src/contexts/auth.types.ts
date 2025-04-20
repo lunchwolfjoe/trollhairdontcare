@@ -1,13 +1,24 @@
 import { ReactNode } from 'react';
 
-export type Role = 'coordinator' | 'volunteer' | 'admin';
+export type Role = 'admin' | 'coordinator' | 'volunteer' | 'guest';
 
 export interface User {
   id: string;
   email: string;
+  full_name: string;
+  avatar_url: string;
   roles: Role[];
-  full_name?: string;
-  avatar_url?: string;
+  phone?: string;
+}
+
+export interface SessionData {
+  access_token: string;
+  refresh_token: string;
+  user: {
+    id: string;
+    email: string;
+    user_metadata: any;
+  };
 }
 
 export interface AuthContextType {
@@ -16,13 +27,11 @@ export interface AuthContextType {
   authenticated: boolean;
   roles: Role[];
   activeRole: Role | null;
-  setActiveRole: (role: Role) => void;
+  signIn: (email: string, password: string) => Promise<void>;
+  signUp: (email: string, password: string, userData: Partial<User>) => Promise<void>;
+  signOut: () => Promise<void>;
   hasRole: (role: Role) => boolean;
-  hasAnyRole: (roles: Role[]) => boolean;
-  signin: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
-  signout: () => Promise<void>;
-  signup: (email: string, password: string, fullName?: string) => Promise<{ success: boolean; error?: string }>;
-  isDevelopment: boolean;
+  setActiveRole: (role: Role) => void;
 }
 
 export interface AuthProviderProps {
