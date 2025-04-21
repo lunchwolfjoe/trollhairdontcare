@@ -35,6 +35,7 @@ import { AccessDenied } from "./pages/AccessDenied";
 import { VolunteerCommunications } from "./features/volunteer/VolunteerCommunications";
 import { SimpleAuthProvider, useSimpleAuth } from "./contexts/SimpleAuthContext";
 import { SimpleLogin } from "./pages/SimpleLogin";
+import DebugEnv from "./components/DebugEnv";
 
 // New simplified protected route component
 interface SimpleProtectedRouteProps {
@@ -46,7 +47,7 @@ const SimpleProtectedRoute: React.FC<SimpleProtectedRouteProps> = ({
   children, 
   requiredRoles = [] 
 }) => {
-  const { authenticated, loading, activeRole } = useSimpleAuth();
+  const { authenticated, loading, activeRole, user } = useSimpleAuth();
 
   if (loading) {
     return <div>Loading...</div>;
@@ -56,7 +57,12 @@ const SimpleProtectedRoute: React.FC<SimpleProtectedRouteProps> = ({
     return <Navigate to="/login" replace />;
   }
 
-  if (requiredRoles.length > 0 && (!activeRole || !requiredRoles.includes(activeRole))) {
+  // Check if the user has admin role - admins can access everything
+  const isAdmin = user?.roles.includes('admin') || activeRole === 'admin';
+  
+  // Allow access if the user is admin or has one of the required roles
+  if (requiredRoles.length > 0 && !isAdmin && (!activeRole || !requiredRoles.includes(activeRole))) {
+    console.log('Access denied. Required roles:', requiredRoles, 'User role:', activeRole, 'Is admin:', isAdmin);
     return <Navigate to="/access-denied" replace />;
   }
 
@@ -72,6 +78,7 @@ function SimpleAppRoutes() {
         {/* Public routes */}
         <Route path="/login" element={<SimpleLogin />} />
         <Route path="/access-denied" element={<AccessDenied />} />
+        <Route path="/debug-env" element={<DebugEnv />} />
 
         {/* Default redirect based on authentication and role */}
         <Route

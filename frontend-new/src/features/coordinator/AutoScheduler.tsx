@@ -35,7 +35,6 @@ import {
 } from '@mui/icons-material';
 import { festivalService, crewService } from '../../lib/services';
 import { Festival } from '../../lib/types/models';
-import CheckTableSchema from '../../components/DevHelpers/CheckTableSchema';
 import { supabase } from '../../lib/supabaseClient';
 
 // Mock data - replace with actual data from backend
@@ -1209,104 +1208,99 @@ const AutoScheduler: React.FC = () => {
           </>
         )}
 
-        {/* Add table schema debugger in development mode */}
-        {import.meta.env.MODE === 'development' && (
-          <CheckTableSchema />
-        )}
-      </Box>
-
-      {/* Assignment Dialog */}
-      <Dialog open={assignDialogOpen} onClose={() => setAssignDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>
-          Assign Volunteer to Shift
-        </DialogTitle>
-        <DialogContent>
-          <Box sx={{ pt: 2 }}>
-            <Typography variant="subtitle1" gutterBottom>
-              {selectedShift && crews.find(c => c.id === selectedShift.crewId)?.name}
-            </Typography>
-            <Typography variant="body2" color="text.secondary" gutterBottom>
-              {selectedShift && `${selectedShift.startTime.toLocaleDateString()} ${selectedShift.startTime.toLocaleTimeString()} - ${selectedShift.endTime.toLocaleTimeString()}`}
-            </Typography>
-            <FormControl fullWidth sx={{ mt: 2 }}>
-              <InputLabel>Select Volunteer</InputLabel>
-              <Select
-                label="Select Volunteer"
-                onChange={(e) => selectedShift && handleAssignVolunteer(selectedShift.id, e.target.value as string)}
-              >
-                {volunteers
-                  .filter(volunteer => {
-                    // Filter out volunteers already assigned to this shift
-                    if (selectedShift?.assignedVolunteers.includes(volunteer.id)) return false;
-                    
-                    // Check if volunteer has required skills
-                    const crew = crews.find(c => c.id === selectedShift?.crewId);
-                    if (!crew) return false;
-                    
-                    return crew.requiredSkills.some(skill => volunteer.skills.includes(skill));
-                  })
-                  .map((volunteer) => (
-                    <MenuItem key={volunteer.id} value={volunteer.id}>
-                      {volunteer.name} - {volunteer.skills.join(', ')}
-                    </MenuItem>
-                  ))}
-              </Select>
-            </FormControl>
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setAssignDialogOpen(false)}>Cancel</Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Conflict Dialog */}
-      <Dialog open={conflictDialogOpen} onClose={() => setConflictDialogOpen(false)}>
-        <DialogTitle>Assignment Conflict</DialogTitle>
-        <DialogContent>
-          <Typography>{conflictMessage}</Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConflictDialogOpen(false)}>OK</Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Error Dialog */}
-      <Dialog open={errorDialogOpen} onClose={() => setErrorDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Validation Error</DialogTitle>
-        <DialogContent>
-          <Box sx={{ pt: 2 }}>
-            <Typography color="error" gutterBottom>
-              Please correct the following issues:
-            </Typography>
-            <Box component="ul" sx={{ mt: 1, pl: 2 }}>
-              {validationErrors.map((error, index) => (
-                <Typography component="li" key={index} color="error">
-                  {error.message}
-                </Typography>
-              ))}
+        {/* Assignment Dialog */}
+        <Dialog open={assignDialogOpen} onClose={() => setAssignDialogOpen(false)} maxWidth="sm" fullWidth>
+          <DialogTitle>
+            Assign Volunteer to Shift
+          </DialogTitle>
+          <DialogContent>
+            <Box sx={{ pt: 2 }}>
+              <Typography variant="subtitle1" gutterBottom>
+                {selectedShift && crews.find(c => c.id === selectedShift.crewId)?.name}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" gutterBottom>
+                {selectedShift && `${selectedShift.startTime.toLocaleDateString()} ${selectedShift.startTime.toLocaleTimeString()} - ${selectedShift.endTime.toLocaleTimeString()}`}
+              </Typography>
+              <FormControl fullWidth sx={{ mt: 2 }}>
+                <InputLabel>Select Volunteer</InputLabel>
+                <Select
+                  label="Select Volunteer"
+                  onChange={(e) => selectedShift && handleAssignVolunteer(selectedShift.id, e.target.value as string)}
+                >
+                  {volunteers
+                    .filter(volunteer => {
+                      // Filter out volunteers already assigned to this shift
+                      if (selectedShift?.assignedVolunteers.includes(volunteer.id)) return false;
+                      
+                      // Check if volunteer has required skills
+                      const crew = crews.find(c => c.id === selectedShift?.crewId);
+                      if (!crew) return false;
+                      
+                      return crew.requiredSkills.some(skill => volunteer.skills.includes(skill));
+                    })
+                    .map((volunteer) => (
+                      <MenuItem key={volunteer.id} value={volunteer.id}>
+                        {volunteer.name} - {volunteer.skills.join(', ')}
+                      </MenuItem>
+                    ))}
+                </Select>
+              </FormControl>
             </Box>
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setErrorDialogOpen(false)}>OK</Button>
-        </DialogActions>
-      </Dialog>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setAssignDialogOpen(false)}>Cancel</Button>
+          </DialogActions>
+        </Dialog>
 
-      {/* Success/error notification */}
-      <Snackbar 
-        open={snackbarOpen} 
-        autoHideDuration={6000} 
-        onClose={() => setSnackbarOpen(false)}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-      >
-        <Alert 
-          onClose={() => setSnackbarOpen(false)} 
-          severity={snackbarSeverity}
-          sx={{ width: '100%' }}
+        {/* Conflict Dialog */}
+        <Dialog open={conflictDialogOpen} onClose={() => setConflictDialogOpen(false)}>
+          <DialogTitle>Assignment Conflict</DialogTitle>
+          <DialogContent>
+            <Typography>{conflictMessage}</Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setConflictDialogOpen(false)}>OK</Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Error Dialog */}
+        <Dialog open={errorDialogOpen} onClose={() => setErrorDialogOpen(false)} maxWidth="sm" fullWidth>
+          <DialogTitle>Validation Error</DialogTitle>
+          <DialogContent>
+            <Box sx={{ pt: 2 }}>
+              <Typography color="error" gutterBottom>
+                Please correct the following issues:
+              </Typography>
+              <Box component="ul" sx={{ mt: 1, pl: 2 }}>
+                {validationErrors.map((error, index) => (
+                  <Typography component="li" key={index} color="error">
+                    {error.message}
+                  </Typography>
+                ))}
+              </Box>
+            </Box>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setErrorDialogOpen(false)}>OK</Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Success/error notification */}
+        <Snackbar 
+          open={snackbarOpen} 
+          autoHideDuration={6000} 
+          onClose={() => setSnackbarOpen(false)}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
         >
-          {snackbarMessage}
-        </Alert>
-      </Snackbar>
+          <Alert 
+            onClose={() => setSnackbarOpen(false)} 
+            severity={snackbarSeverity}
+            sx={{ width: '100%' }}
+          >
+            {snackbarMessage}
+          </Alert>
+        </Snackbar>
+      </Box>
     </Container>
   );
 };

@@ -48,7 +48,6 @@ import { AssetService } from '../../lib/services/assetService';
 import { festivalService } from '../../lib/services';
 import { Asset, AssetCategory, Festival } from '../../lib/types/models';
 import { supabase } from '../../lib/supabaseClient';
-import SupabaseConnectionTest from '../../components/DevHelpers/SupabaseConnectionTest';
 
 const assetService = new AssetService();
 
@@ -490,8 +489,6 @@ const AssetManagement: React.FC = () => {
 
   return (
     <Container maxWidth="lg">
-      <SupabaseConnectionTest />
-      
       <Box sx={{ my: 4 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
           <Box>

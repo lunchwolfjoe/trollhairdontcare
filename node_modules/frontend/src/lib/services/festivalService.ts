@@ -42,23 +42,14 @@ export class FestivalService {
     }
     
     // Check if we're authenticated according to the auth context
-    const isAuth = this.auth.authenticated;
+    const isAuth = this.auth.authenticated && !!this.auth.sessionToken;
     console.log('Authentication check in festival service:', {
-      authenticated: isAuth,
+      authenticated: this.auth.authenticated,
       hasUser: !!this.auth.user,
       hasToken: !!this.auth.sessionToken,
       userId: this.auth.user?.id || 'none',
+      token: this.auth.sessionToken ? `${this.auth.sessionToken.substring(0, 10)}...` : 'none',
     });
-    
-    // Auto-mock authentication for demo/dev purposes if needed
-    if (!isAuth) {
-      console.log('Not authenticated - auto-mocking admin for demo');
-      if (typeof this.auth.mockSignInAdmin === 'function') {
-        this.auth.mockSignInAdmin();
-        // Return true as we've now mocked auth
-        return true;
-      }
-    }
     
     return isAuth;
   }
@@ -67,7 +58,24 @@ export class FestivalService {
    * Get auth headers with the correct token
    */
   private getAuthHeaders(): Record<string, string> {
-    return this.auth?.getAuthHeaders() || {
+    // If we have auth context with a getAuthHeaders function, use it
+    if (this.auth?.getAuthHeaders) {
+      const headers = this.auth.getAuthHeaders();
+      console.log('Using auth headers from context:', {
+        hasApiKey: !!headers['apikey'],
+        authorization: headers['Authorization']?.substring(0, 20) + '...',
+      });
+      
+      // Ensure we have apikey for Supabase
+      if (!headers['apikey']) {
+        headers['apikey'] = supabase.supabaseKey;
+      }
+      
+      return headers;
+    }
+    
+    // Fallback to using the API key
+    return {
       'apikey': supabase.supabaseKey,
       'Authorization': `Bearer ${supabase.supabaseKey}`,
       'Content-Type': 'application/json'

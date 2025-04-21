@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useSimpleAuth } from '../contexts/SimpleAuthContext';
 import { Box, Button, Container, TextField, Typography, Alert, CircularProgress, Paper } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
+import { forceRefreshSession, testApi } from '../lib/supabaseClient';
 
 export const SimpleLogin: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -38,6 +39,26 @@ export const SimpleLogin: React.FC = () => {
       console.error('Login error:', err);
       setLocalError('An unexpected error occurred');
     }
+  };
+
+  const handleDebugFunctions = async () => {
+    // Reset localstorage auth data
+    localStorage.removeItem('supabase_auth_token');
+    localStorage.removeItem('supabase.auth.token');
+    
+    // Force clear session
+    await supabase.auth.signOut();
+    
+    // Attempt to test API connection
+    const result = await testApi();
+    
+    // Show results
+    alert(
+      `Debug functions executed:\n\n` +
+      `Auth tokens cleared.\n` +
+      `API test result: ${result.error ? 'Failed' : 'Success'}\n` +
+      `Please try logging in again.`
+    );
   };
 
   return (
@@ -99,6 +120,16 @@ export const SimpleLogin: React.FC = () => {
             disabled={loading}
           >
             {loading ? <CircularProgress size={24} /> : 'Sign In'}
+          </Button>
+          
+          <Button 
+            variant="outlined" 
+            color="secondary" 
+            onClick={handleDebugFunctions}
+            fullWidth
+            sx={{ mt: 2 }}
+          >
+            Fix API Connection
           </Button>
         </Box>
       </Paper>

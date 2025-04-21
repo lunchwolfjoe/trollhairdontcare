@@ -26,7 +26,6 @@ import EditIcon from '@mui/icons-material/Edit';
 import { festivalService, crewService } from '../../lib/services';
 import { Festival, Crew as CrewModel } from '../../lib/types/models';
 import { useParams } from 'react-router-dom';
-import CheckTableSchema from '../../components/DevHelpers/CheckTableSchema';
 import { supabase } from '../../lib/supabaseClient';
 
 interface Crew {
@@ -660,11 +659,6 @@ const CrewManagement: React.FC = () => {
             </Button>
           </DialogActions>
         </Dialog>
-        
-        {/* Dev helper for schema debugging - only shown in development */}
-        {import.meta.env.MODE === 'development' && (
-          <CheckTableSchema />
-        )}
       </Box>
     </Container>
   );

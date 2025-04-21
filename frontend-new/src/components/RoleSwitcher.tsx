@@ -1,24 +1,53 @@
-import React from 'react';
-import { Box, ToggleButtonGroup, ToggleButton, Paper, Typography, useTheme } from '@mui/material';
-import { Link as RouterLink } from 'react-router-dom';
-import { useAuth } from '../hooks/useAuth';
-import { Role } from '../contexts/AuthContext';
+import React, { useState } from 'react';
+import { Box, ToggleButtonGroup, ToggleButton, Paper, Typography, useTheme, Menu, MenuItem, Button } from '@mui/material';
+import { Link as RouterLink, useNavigate } from 'react-router-dom';
+import { useSimpleAuth } from '../contexts/SimpleAuthContext';
+
+// Define role type for simplicity
+type Role = 'admin' | 'coordinator' | 'volunteer';
 
 const RoleSwitcher: React.FC = () => {
-  const { activeRole, setActiveRole, roles, hasRole, isDevelopment } = useAuth();
+  const { user, activeRole, setActiveRole } = useSimpleAuth();
   const theme = useTheme();
-
-  const handleRoleChange = (
-    _event: React.MouseEvent<HTMLElement>,
-    newRole: Role | null,
-  ) => {
-    if (newRole !== null) {
-      setActiveRole(newRole);
+  const navigate = useNavigate();
+  
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const open = Boolean(anchorEl);
+  
+  // Check if user has a role
+  const hasRole = (role: Role): boolean => {
+    return user?.roles.includes(role) || false;
+  };
+  
+  const handleClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    setAnchorEl(event.currentTarget);
+  };
+  
+  const handleClose = () => {
+    setAnchorEl(null);
+  };
+  
+  const handleRoleSelect = (role: Role) => {
+    // Set the active role
+    setActiveRole(role);
+    
+    // Navigate to the appropriate dashboard based on selected role
+    switch(role) {
+      case 'admin':
+        navigate('/admin/dashboard');
+        break;
+      case 'coordinator':
+        navigate('/coordinator/dashboard');
+        break;
+      case 'volunteer':
+        navigate('/volunteer/dashboard');
+        break;
     }
+    handleClose();
   };
 
   // Don't render if user has no roles or only one role
-  if (!roles.length || roles.length === 1) {
+  if (!user?.roles.length || user.roles.length === 1) {
     return null;
   }
 
@@ -32,93 +61,48 @@ const RoleSwitcher: React.FC = () => {
       }}
     >
       <Paper elevation={3} sx={{ p: 1 }}>
-        <Box sx={{ mb: 0.5 }}>
-          <Typography variant="caption" color="text.secondary">
-            Active Role
-          </Typography>
-        </Box>
-        <ToggleButtonGroup
-          color="primary"
-          value={activeRole}
-          exclusive
-          onChange={handleRoleChange}
-          aria-label="role switcher"
+        <Button
+          variant="outlined"
           size="small"
+          onClick={handleClick}
+          sx={{ 
+            textTransform: 'none', 
+            minWidth: '120px' 
+          }}
         >
-          {hasRole('volunteer') && (
-            <ToggleButton 
-              value="volunteer"
-              sx={{ 
-                backgroundColor: activeRole === 'volunteer' ? theme.palette.primary.main : 'inherit',
-                color: activeRole === 'volunteer' ? 'white' : 'inherit',
-                '&.Mui-selected': {
-                  backgroundColor: theme.palette.primary.main,
-                  color: 'white',
-                },
-                '&.Mui-selected:hover': {
-                  backgroundColor: theme.palette.primary.dark,
-                  color: 'white',
-                }
-              }}
-            >
-              Volunteer
-            </ToggleButton>
-          )}
-          {hasRole('coordinator') && (
-            <ToggleButton 
-              value="coordinator"
-              sx={{ 
-                backgroundColor: activeRole === 'coordinator' ? theme.palette.primary.main : 'inherit',
-                color: activeRole === 'coordinator' ? 'white' : 'inherit',
-                '&.Mui-selected': {
-                  backgroundColor: theme.palette.primary.main,
-                  color: 'white',
-                },
-                '&.Mui-selected:hover': {
-                  backgroundColor: theme.palette.primary.dark,
-                  color: 'white',
-                }
-              }}
-            >
-              Coordinator
-            </ToggleButton>
-          )}
+          {activeRole ? `Current: ${activeRole.charAt(0).toUpperCase() + activeRole.slice(1)}` : 'Switch Role'}
+        </Button>
+        
+        <Menu
+          anchorEl={anchorEl}
+          open={open}
+          onClose={handleClose}
+        >
           {hasRole('admin') && (
-            <ToggleButton 
-              value="admin"
-              sx={{ 
-                backgroundColor: activeRole === 'admin' ? theme.palette.primary.main : 'inherit',
-                color: activeRole === 'admin' ? 'white' : 'inherit',
-                '&.Mui-selected': {
-                  backgroundColor: theme.palette.primary.main,
-                  color: 'white',
-                },
-                '&.Mui-selected:hover': {
-                  backgroundColor: theme.palette.primary.dark,
-                  color: 'white',
-                }
-              }}
+            <MenuItem 
+              onClick={() => handleRoleSelect('admin')}
+              selected={activeRole === 'admin'}
             >
               Admin
-            </ToggleButton>
+            </MenuItem>
           )}
-        </ToggleButtonGroup>
-        
-        {/* Dev Tools Link */}
-        {isDevelopment && (
-          <Box sx={{ mt: 1, textAlign: 'center' }}>
-            <RouterLink 
-              to="/dev-tools"
-              style={{ 
-                fontSize: '0.7rem', 
-                color: theme.palette.text.secondary,
-                textDecoration: 'none',
-              }}
+          {hasRole('coordinator') && (
+            <MenuItem 
+              onClick={() => handleRoleSelect('coordinator')}
+              selected={activeRole === 'coordinator'}
             >
-              Dev Tools
-            </RouterLink>
-          </Box>
-        )}
+              Coordinator
+            </MenuItem>
+          )}
+          {hasRole('volunteer') && (
+            <MenuItem 
+              onClick={() => handleRoleSelect('volunteer')}
+              selected={activeRole === 'volunteer'}
+            >
+              Volunteer
+            </MenuItem>
+          )}
+        </Menu>
       </Paper>
     </Box>
   );

@@ -41,8 +41,6 @@ export class VolunteerService {
           notes,
           availability_start,
           availability_end,
-          skills,
-          availability,
           created_at,
           updated_at,
           profiles: profile_id (*)
@@ -123,8 +121,6 @@ export class VolunteerService {
           notes,
           availability_start,
           availability_end,
-          skills,
-          availability,
           created_at,
           updated_at,
           profiles: profile_id (*),
@@ -187,8 +183,8 @@ export class VolunteerService {
         profile_id: userId,
         festival_id: volunteerInput.festival_id || '', // Ensure festival_id is provided
         status: 'pending', // Default status for new applications
-        skills: volunteerInput.skills || [],
-        availability: volunteerInput.availability || {},
+        availability_start: volunteerInput.availability_start,
+        availability_end: volunteerInput.availability_end,
         // Map other relevant fields from volunteerInput if needed
       };
 
@@ -296,22 +292,6 @@ export class VolunteerService {
   async updateVolunteerStatus(id: string, status: 'pending' | 'approved' | 'rejected'): Promise<ApiResponse<Volunteer>> {
     try {
       const updateData: VolunteerUpdate = { status };
-      const { data, error } = await supabase.from(this.tableName)
-        .update(updateData)
-        .eq('id', id)
-        .select(/* explicit fields matching Volunteer */)
-        .single();
-      if (error) throw error;
-      // Ensure data matches Volunteer before casting
-      return { data: data as Volunteer, error: null };
-    } catch (error) {
-      return { data: null, error: handleError(error) };
-    }
-  }
-
-  async updateVolunteerSkills(id: string, skills: string[]): Promise<ApiResponse<Volunteer>> {
-    try {
-      const updateData: VolunteerUpdate = { skills };
       const { data, error } = await supabase.from(this.tableName)
         .update(updateData)
         .eq('id', id)

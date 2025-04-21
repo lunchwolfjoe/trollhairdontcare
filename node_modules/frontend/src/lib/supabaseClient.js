@@ -1,9 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
+import { config } from '../config';
 
-// Initialize the Supabase client with the URL and anon key from environment variables
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-// Use the correct API key from environment variables
-const correctKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+// Initialize the Supabase client with the URL and anon key from environment variables or config fallback
+const supabaseUrl = config.supabaseUrl;
+// Use the correct API key from environment variables or config fallback
+const correctKey = config.supabaseAnonKey;
 
 // Log error if env variables not found - this helps debugging Vercel deployments
 if (!supabaseUrl || !correctKey) {

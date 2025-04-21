@@ -17,9 +17,12 @@ type SimpleAuthContextType = {
   error: string | null;
   authenticated: boolean;
   activeRole: string | null;
+  sessionToken: string | null;
   signIn: (email: string, password: string) => Promise<boolean>;
   signUp: (email: string, password: string, userData: { full_name: string }) => Promise<void>;
   signOut: () => Promise<void>;
+  getAuthHeaders: () => Record<string, string>;
+  setActiveRole: (role: string) => void;
 };
 
 // Create context
@@ -31,6 +34,7 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeRole, setActiveRole] = useState<string | null>(null);
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
   
   // Get supabase client
   const supabase = getSupabaseClient();
@@ -70,9 +74,13 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (!session) {
         setUser(null);
         setActiveRole(null);
+        setSessionToken(null);
         setLoading(false);
         return;
       }
+      
+      // Store session token
+      setSessionToken(session.access_token);
       
       // Try to get user data
       try {
@@ -132,10 +140,12 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         console.error('Error retrieving user data:', err);
         setUser(null);
         setActiveRole(null);
+        setSessionToken(null);
       }
     } catch (err) {
       console.error('Unexpected error in auth setup:', err);
       setError('Failed to initialize authentication');
+      setSessionToken(null);
     } finally {
       setLoading(false);
     }
@@ -150,6 +160,9 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (event === 'SIGNED_IN' && session) {
         // Handle the sign-in event
         try {
+          // Store the session token
+          setSessionToken(session.access_token);
+          
           const { data, error } = await supabase.auth.getUser();
           
           if (error || !data?.user) {
@@ -177,7 +190,10 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       } else if (event === 'SIGNED_OUT') {
         setUser(null);
         setActiveRole(null);
-      } else if (event === 'TOKEN_REFRESHED') {
+        setSessionToken(null);
+      } else if (event === 'TOKEN_REFRESHED' && session) {
+        // Update session token when refreshed
+        setSessionToken(session.access_token);
         // Token was refreshed, update our user data
         loadUserData();
       }
@@ -213,6 +229,9 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         setError('Authentication failed. Please try again.');
         return false;
       }
+      
+      // Store session token immediately
+      setSessionToken(data.session.access_token);
       
       console.log("Auth successful, session established");
       return true;
@@ -268,6 +287,7 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       // Clear state immediately, don't wait for event
       setUser(null);
       setActiveRole(null);
+      setSessionToken(null);
     } catch (err: any) {
       console.error('Sign out error:', err);
       setError(err.message);
@@ -275,8 +295,32 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       // Force sign out anyway
       setUser(null);
       setActiveRole(null);
+      setSessionToken(null);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Add getAuthHeaders function
+  const getAuthHeaders = () => {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    
+    if (sessionToken) {
+      headers['Authorization'] = `Bearer ${sessionToken}`;
+    }
+    
+    return headers;
+  };
+
+  // Add role switching function
+  const handleRoleChange = (role: string) => {
+    if (user && user.roles.includes(role)) {
+      console.log(`Switching active role to: ${role}`);
+      setActiveRole(role);
+    } else {
+      console.error(`Cannot set active role to ${role}. User does not have this role.`);
     }
   };
 
@@ -287,9 +331,12 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     error,
     authenticated: !!user,
     activeRole,
+    sessionToken,
     signIn,
     signUp,
     signOut,
+    getAuthHeaders,
+    setActiveRole: handleRoleChange,
   };
 
   return (

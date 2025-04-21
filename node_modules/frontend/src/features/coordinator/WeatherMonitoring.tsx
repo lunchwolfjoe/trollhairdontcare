@@ -342,46 +342,95 @@ const WeatherMonitoring: React.FC = () => {
     setError(null);
     
     try {
-      // Check if we should use mock data
-      const useMockData = import.meta.env.VITE_USE_MOCK_DATA === 'true';
+      // Always use mock data
+      console.log('Using mock weather data');
       
-      if (useMockData) {
-        console.log('Using mock weather data');
-        setTimeout(() => {
-          setCurrentWeather(generateMockCurrentWeather());
-          setForecast(generateMockForecast());
-          setAlerts(mockAlerts);
-          setLoading(false);
-          setRefreshTime(new Date());
-        }, 800);
-      } else {
-        // Fetch real weather data
-        console.log('Fetching real weather data');
-        const [currentResponse, forecastResponse] = await Promise.all([
-          weatherService.getCurrentWeather(location.lat, location.lon),
-          weatherService.getWeatherForecast(location.lat, location.lon)
-        ]);
+      // Helper function to generate mock current weather
+      const generateMockCurrentWeather = () => ({
+        dt: Math.floor(Date.now() / 1000),
+        main: {
+          temp: 72 + Math.floor(Math.random() * 10),
+          feels_like: 70 + Math.floor(Math.random() * 10),
+          temp_min: 68,
+          temp_max: 82,
+          pressure: 1015,
+          humidity: 45 + Math.floor(Math.random() * 20)
+        },
+        weather: [{
+          id: 800,
+          main: 'Clear',
+          description: 'clear sky',
+          icon: '01d'
+        }],
+        wind: {
+          speed: 5 + Math.floor(Math.random() * 10),
+          deg: 120
+        },
+        clouds: {
+          all: 20
+        },
+        visibility: 10000,
+        name: location.name || 'Kerrville'
+      });
+      
+      // Helper function to generate mock forecast data
+      const generateMockForecast = () => {
+        const forecastItems = [];
+        const now = new Date();
         
-        if (currentResponse.error) {
-          throw new Error(currentResponse.error.message);
+        for (let i = 0; i < 40; i++) {
+          const forecastTime = new Date(now.getTime() + (i * 3 * 60 * 60 * 1000));
+          forecastItems.push({
+            dt: Math.floor(forecastTime.getTime() / 1000),
+            main: {
+              temp: 70 + Math.floor(Math.random() * 15),
+              feels_like: 68 + Math.floor(Math.random() * 15),
+              temp_min: 65,
+              temp_max: 85,
+              pressure: 1015,
+              humidity: 45 + Math.floor(Math.random() * 20)
+            },
+            weather: [{
+              id: i % 3 === 0 ? 800 : (i % 3 === 1 ? 801 : 500),
+              main: i % 3 === 0 ? 'Clear' : (i % 3 === 1 ? 'Clouds' : 'Rain'),
+              description: i % 3 === 0 ? 'clear sky' : (i % 3 === 1 ? 'few clouds' : 'light rain'),
+              icon: i % 3 === 0 ? '01d' : (i % 3 === 1 ? '02d' : '10d')
+            }],
+            wind: {
+              speed: 3 + Math.floor(Math.random() * 15),
+              deg: 120
+            },
+            visibility: 10000,
+            pop: Math.random() * 0.5,
+            dt_txt: forecastTime.toISOString()
+          });
         }
         
-        if (forecastResponse.error) {
-          throw new Error(forecastResponse.error.message);
-        }
-        
-        setCurrentWeather(currentResponse.data);
-        setForecast(forecastResponse.data.list);
-        checkForAlerts(currentResponse.data, forecastResponse.data.list);
+        return {
+          list: forecastItems
+        };
+      };
+      
+      setTimeout(() => {
+        setCurrentWeather(generateMockCurrentWeather());
+        setForecast(generateMockForecast().list);
+        setAlerts(mockAlerts);
         setLoading(false);
         setRefreshTime(new Date());
-      }
+      }, 800);
+      
+      // Ensure loading state exits after a reasonable time
+      setTimeout(() => {
+        if (loading) {
+          setLoading(false);
+        }
+      }, 3000);
     } catch (err) {
       console.error('Error fetching weather data:', err);
       setError(err instanceof Error ? err.message : 'An unknown error occurred');
       setLoading(false);
     }
-  }, [location, user]);
+  }, [location, user, loading]);
   
   // Check for weather alerts based on thresholds
   const checkForAlerts = useCallback((current: CurrentWeather, forecastItems: ForecastItem[]) => {
@@ -484,46 +533,58 @@ const WeatherMonitoring: React.FC = () => {
     setSettingsError(null);
     
     try {
-      // Check if we should use mock data
-      const useMockData = import.meta.env.VITE_USE_MOCK_DATA === 'true';
+      // Always use mock settings
+      console.log('Using mock settings');
       
-      if (useMockData) {
-        console.log('Using mock settings');
-        // Just use the default settings
-        setTimeout(() => {
-          setSettingsLoading(false);
-        }, 500);
-      } else {
-        // Load real user settings from the service
-        console.log('Loading real user settings');
-        const response = await weatherService.getSettings(user.id);
-        
-        if (response.error) {
-          throw new Error(response.error.message);
-        }
-        
-        if (response.data) {
-          const settings = response.data;
-          setLocation({
-            name: settings.location_name,
-            lat: settings.location_lat,
-            lon: settings.location_lon
-          });
-          setUpdateInterval(settings.update_interval);
-          setUnits(settings.units);
-          
-          // Also update the temporary settings
-          setTempLocation({
-            name: settings.location_name,
-            lat: settings.location_lat,
-            lon: settings.location_lon
-          });
-          setTempUpdateInterval(settings.update_interval);
-          setTempUnits(settings.units);
-        }
-        
+      // Create mock settings
+      const mockSettings = {
+        location_name: 'Kerrville, TX',
+        location_lat: 30.0469,
+        location_lon: -99.1403,
+        units: 'imperial',
+        update_interval: 30
+      };
+      
+      // Set the location and other settings
+      setLocation({
+        name: mockSettings.location_name,
+        lat: mockSettings.location_lat,
+        lon: mockSettings.location_lon
+      });
+      setUpdateInterval(mockSettings.update_interval);
+      setUnits(mockSettings.units);
+      
+      // Also update the temporary settings
+      setTempLocation({
+        name: mockSettings.location_name,
+        lat: mockSettings.location_lat,
+        lon: mockSettings.location_lon
+      });
+      setTempUpdateInterval(mockSettings.update_interval);
+      setTempUnits(mockSettings.units);
+      
+      // Create mock thresholds
+      const mockThresholds = {
+        highTemp: 85,
+        lowTemp: 45,
+        highWind: 15,
+        rainAmount: 0.5,
+        snowAmount: 1.0
+      };
+      
+      setThresholds(mockThresholds);
+      setTempThresholds(mockThresholds);
+      
+      setTimeout(() => {
         setSettingsLoading(false);
-      }
+      }, 500);
+      
+      // Ensure loading state exits after a reasonable time
+      setTimeout(() => {
+        if (settingsLoading) {
+          setSettingsLoading(false);
+        }
+      }, 2000);
     } catch (err) {
       console.error('Error loading user settings:', err);
       setSettingsError(err instanceof Error ? err.message : 'Failed to load settings');
@@ -545,27 +606,9 @@ const WeatherMonitoring: React.FC = () => {
       setUnits(tempUnits);
       setThresholds(tempThresholds);
       
-      // Check if we should use mock data
-      const useMockData = import.meta.env.VITE_USE_MOCK_DATA === 'true';
+      console.log('Settings saved successfully (mock)');
       
-      if (!useMockData) {
-        // Save the settings to the database
-        console.log('Saving real user settings');
-        const settingsToSave: WeatherSettings = {
-          location_name: tempLocation.name,
-          location_lat: tempLocation.lat,
-          location_lon: tempLocation.lon,
-          units: tempUnits,
-          update_interval: tempUpdateInterval
-        };
-        
-        const response = await weatherService.saveSettings(user.id, settingsToSave);
-        
-        if (response.error) {
-          throw new Error(response.error.message);
-        }
-      }
-      
+      // Close the dialog and fetch new weather data
       setSettingsLoading(false);
       setShowSettingsDialog(false);
       
@@ -691,9 +734,17 @@ const WeatherMonitoring: React.FC = () => {
               Updated: {format(refreshTime, 'MMM d, h:mm a')}
             </Typography>
             <Tooltip title="Refresh">
-              <IconButton onClick={fetchWeatherData} disabled={loading}>
-                <RefreshIcon />
-              </IconButton>
+              {loading ? (
+                <span>
+                  <IconButton disabled={true} sx={{ ml: 1 }}>
+                    <RefreshIcon />
+                  </IconButton>
+                </span>
+              ) : (
+                <IconButton onClick={fetchWeatherData} sx={{ ml: 1 }}>
+                  <RefreshIcon />
+                </IconButton>
+              )}
             </Tooltip>
           </Box>
         </CardContent>
@@ -1020,9 +1071,17 @@ const WeatherMonitoring: React.FC = () => {
                 </IconButton>
               </Tooltip>
               <Tooltip title="Refresh">
-                <IconButton onClick={fetchWeatherData} disabled={loading} sx={{ ml: 1 }}>
-                  <RefreshIcon />
-                </IconButton>
+                {loading ? (
+                  <span>
+                    <IconButton disabled={true} sx={{ ml: 1 }}>
+                      <RefreshIcon />
+                    </IconButton>
+                  </span>
+                ) : (
+                  <IconButton onClick={fetchWeatherData} sx={{ ml: 1 }}>
+                    <RefreshIcon />
+                  </IconButton>
+                )}
               </Tooltip>
             </Box>
           </Box>

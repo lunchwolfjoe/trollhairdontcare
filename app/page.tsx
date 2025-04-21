@@ -1,17 +1,15 @@
 import { createClient } from '@/utils/supabase/server'
-import { cookies } from 'next/headers'
+import { redirect } from 'next/navigation'
 
 export default async function Page() {
-  const cookieStore = cookies()
-  const supabase = createClient(cookieStore)
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
 
-  const { data: todos } = await supabase.from('todos').select()
+  // Redirect authenticated users to the protected page
+  if (user) {
+    redirect('/protected')
+  }
 
-  return (
-    <ul>
-      {todos?.map((todo) => (
-        <li key={todo.id}>{todo.title || JSON.stringify(todo)}</li>
-      ))}
-    </ul>
-  )
+  // Redirect unauthenticated users to the sign-in page
+  redirect('/sign-in')
 } 

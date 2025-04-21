@@ -52,6 +52,7 @@ import { DataGrid, GridColDef } from '@mui/x-data-grid';
 import { festivalService } from '../../lib/services';
 import { Festival } from '../../lib/types/models';
 import { supabase } from '../../lib/supabaseClient';
+import { useSimpleAuth } from '../../contexts/SimpleAuthContext';
 
 interface FormData {
   name: string;
@@ -62,6 +63,9 @@ interface FormData {
 }
 
 const AdminFestivals: React.FC = () => {
+  // Get auth context
+  const auth = useSimpleAuth();
+  
   const [festivals, setFestivals] = useState<Festival[]>([]);
   const [open, setOpen] = useState(false);
   const [selectedFestival, setSelectedFestival] = useState<Festival | null>(null);
@@ -83,6 +87,12 @@ const AdminFestivals: React.FC = () => {
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
   const [selectedFestivalForMenu, setSelectedFestivalForMenu] = useState<Festival | null>(null);
   const [volunteers, setVolunteers] = useState<Record<string, number>>({});
+
+  // Set auth context on component mount
+  useEffect(() => {
+    // Set the auth context for the festival service
+    festivalService.setAuthContext(auth);
+  }, [auth]);
 
   const fetchFestivals = async () => {
     setLoading(true);
