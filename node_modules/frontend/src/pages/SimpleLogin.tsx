@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useSimpleAuth } from '../contexts/SimpleAuthContext';
 import { Box, Button, Container, TextField, Typography, Alert, CircularProgress, Paper } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
-import { forceRefreshSession, testApi } from '../lib/supabaseClient';
+import { forceRefreshSession, testApi, supabase } from '../lib/supabaseClient';
 
 export const SimpleLogin: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -42,23 +42,28 @@ export const SimpleLogin: React.FC = () => {
   };
 
   const handleDebugFunctions = async () => {
-    // Reset localstorage auth data
-    localStorage.removeItem('supabase_auth_token');
-    localStorage.removeItem('supabase.auth.token');
-    
-    // Force clear session
-    await supabase.auth.signOut();
-    
-    // Attempt to test API connection
-    const result = await testApi();
-    
-    // Show results
-    alert(
-      `Debug functions executed:\n\n` +
-      `Auth tokens cleared.\n` +
-      `API test result: ${result.error ? 'Failed' : 'Success'}\n` +
-      `Please try logging in again.`
-    );
+    try {
+      // Reset localstorage auth data
+      localStorage.removeItem('supabase_auth_token');
+      localStorage.removeItem('supabase.auth.token');
+      
+      // Force clear session using the imported client
+      await supabase.auth.signOut();
+      
+      // Attempt to test API connection
+      const result = await testApi();
+      
+      // Show results
+      alert(
+        `Debug functions executed:\n\n` +
+        `Auth tokens cleared.\n` +
+        `API test result: ${result.error ? 'Failed' : 'Success'}\n` +
+        `Please try logging in again.`
+      );
+    } catch (err) {
+      console.error('Debug function error:', err);
+      alert(`Error during debug: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
   };
 
   return (

@@ -1,5 +1,5 @@
 import React from "react";
-import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { ThemeProvider, CssBaseline } from "@mui/material";
 import { theme } from "./theme";
 import { VolunteerLayout } from "./components/VolunteerLayout";
@@ -36,6 +36,7 @@ import { VolunteerCommunications } from "./features/volunteer/VolunteerCommunica
 import { SimpleAuthProvider, useSimpleAuth } from "./contexts/SimpleAuthContext";
 import { SimpleLogin } from "./pages/SimpleLogin";
 import DebugEnv from "./components/DebugEnv";
+import { supabase } from './lib/supabaseClient';
 
 // New simplified protected route component
 interface SimpleProtectedRouteProps {
@@ -186,12 +187,33 @@ function App() {
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <SimpleAuthProvider>
-        <Router>
-          <SimpleAppRoutes />
-        </Router>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/login" element={<SimpleLogin />} />
+            <Route path="/debug" element={<DebugEnv />} />
+            <Route
+              path="/*"
+              element={
+                <>
+                  <NavigationBar />
+                  <RoleSwitcher />
+                  <MainContent />
+                </>
+              }
+            />
+            <Route path="/no-access" element={<NoAccess />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </BrowserRouter>
       </SimpleAuthProvider>
     </ThemeProvider>
   );
 }
 
-export { App };
+// Make sure the Supabase client is available as a global for debugging in development
+if (import.meta.env.DEV) {
+  console.log('DEV mode: Exposing Supabase client to window');
+  (window as any).supabaseClient = supabase;
+}
+
+export default App;
