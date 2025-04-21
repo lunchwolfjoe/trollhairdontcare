@@ -31,19 +31,21 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeRole, setActiveRole] = useState<string | null>(null);
-
+  
   // Get supabase client
   const supabase = getSupabaseClient();
 
   // Fetch user roles by ID
   const fetchUserRoles = async (userId: string): Promise<string[]> => {
     try {
+      // Get roles for this user from the database
       const { data, error } = await supabase
         .from('user_roles')
         .select('role_id, roles(name)')
         .eq('user_id', userId);
       
       if (error || !data || data.length === 0) {
+        console.log("No roles found, defaulting to volunteer");
         return ['volunteer']; // Default role
       }
       
@@ -55,73 +57,101 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   };
 
-  // Setup auth state
-  useEffect(() => {
-    setLoading(true);
-    
-    const setupAuth = async () => {
+  // Function to load user data
+  const loadUserData = async () => {
+    try {
+      // Check for session
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError) {
+        throw sessionError;
+      }
+      
+      if (!session) {
+        setUser(null);
+        setActiveRole(null);
+        setLoading(false);
+        return;
+      }
+      
+      // Try to get user data
       try {
-        // Get the current session
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        const { data: userData, error: userError } = await supabase.auth.getUser();
         
-        if (sessionError) {
-          setError(sessionError.message);
-          setLoading(false);
-          return;
-        }
-        
-        if (!session) {
-          // No active session
-          setUser(null);
-          setActiveRole(null);
-          setLoading(false);
-          return;
-        }
-        
-        try {
-          // Get user data
-          const { data: userData, error: userError } = await supabase.auth.getUser();
+        if (userError) {
+          // Try to refresh the session if we get an error
+          const { error: refreshError } = await supabase.auth.refreshSession();
           
-          if (userError || !userData?.user) {
-            throw userError || new Error('No user found');
+          if (refreshError) {
+            console.error('Failed to refresh session:', refreshError);
+            throw refreshError;
           }
           
-          // Get roles for this user
-          const roles = await fetchUserRoles(userData.user.id);
+          // Try getting the user again after refresh
+          const { data: refreshedData, error: refreshedError } = await supabase.auth.getUser();
           
-          // Create user object
-          const newUser = {
-            id: userData.user.id,
-            email: userData.user.email || '',
-            full_name: userData.user.user_metadata?.full_name,
+          if (refreshedError || !refreshedData?.user) {
+            throw refreshedError || new Error('No user found after refresh');
+          }
+          
+          const roles = await fetchUserRoles(refreshedData.user.id);
+          
+          setUser({
+            id: refreshedData.user.id,
+            email: refreshedData.user.email || '',
+            full_name: refreshedData.user.user_metadata?.full_name,
             roles: roles,
-            avatar_url: userData.user.user_metadata?.avatar_url,
-          };
+            avatar_url: refreshedData.user.user_metadata?.avatar_url,
+          });
           
-          // Set state
-          setUser(newUser);
           setActiveRole(roles.includes('admin') ? 'admin' : roles[0]);
-        } catch (err) {
-          console.error('Error retrieving user data:', err);
-          setUser(null);
-          setActiveRole(null);
+          return;
         }
+        
+        if (!userData?.user) {
+          throw new Error('No user found');
+        }
+        
+        // Get roles for this user
+        const roles = await fetchUserRoles(userData.user.id);
+        
+        // Create user object
+        const newUser = {
+          id: userData.user.id,
+          email: userData.user.email || '',
+          full_name: userData.user.user_metadata?.full_name,
+          roles: roles,
+          avatar_url: userData.user.user_metadata?.avatar_url,
+        };
+        
+        // Set state
+        setUser(newUser);
+        setActiveRole(roles.includes('admin') ? 'admin' : roles[0]);
+        
       } catch (err) {
-        console.error('Unexpected error in auth setup:', err);
-        setError('Failed to initialize authentication');
-      } finally {
-        setLoading(false);
+        console.error('Error retrieving user data:', err);
+        setUser(null);
+        setActiveRole(null);
       }
-    };
-    
-    // Run the setup
-    setupAuth();
+    } catch (err) {
+      console.error('Unexpected error in auth setup:', err);
+      setError('Failed to initialize authentication');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Setup auth state
+  useEffect(() => {
+    loadUserData();
     
     // Set up session change listener
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_IN' && session) {
-        // Then fetch the user
-        supabase.auth.getUser().then(({ data, error }) => {
+        // Handle the sign-in event
+        try {
+          const { data, error } = await supabase.auth.getUser();
+          
           if (error || !data?.user) {
             console.error('Failed to get user after sign in:', error);
             return;
@@ -129,22 +159,27 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           
           // Get user ID and fetch roles
           const userId = data.user.id;
-          fetchUserRoles(userId).then(roles => {
-            // Create and set user object
-            setUser({
-              id: userId,
-              email: data.user.email || '',
-              full_name: data.user.user_metadata?.full_name,
-              roles: roles,
-              avatar_url: data.user.user_metadata?.avatar_url,
-            });
-            
-            setActiveRole(roles.includes('admin') ? 'admin' : roles[0]);
+          const roles = await fetchUserRoles(userId);
+          
+          // Create and set user object
+          setUser({
+            id: userId,
+            email: data.user.email || '',
+            full_name: data.user.user_metadata?.full_name,
+            roles: roles,
+            avatar_url: data.user.user_metadata?.avatar_url,
           });
-        });
+          
+          setActiveRole(roles.includes('admin') ? 'admin' : roles[0]);
+        } catch (err) {
+          console.error('Error handling auth state change:', err);
+        }
       } else if (event === 'SIGNED_OUT') {
         setUser(null);
         setActiveRole(null);
+      } else if (event === 'TOKEN_REFRESHED') {
+        // Token was refreshed, update our user data
+        loadUserData();
       }
     });
     
@@ -160,9 +195,6 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setError(null);
     
     try {
-      // Clear any existing session first
-      await supabase.auth.signOut();
-      
       console.log("Signing in with:", { email });
       
       // Sign in with password
@@ -183,10 +215,6 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
       
       console.log("Auth successful, session established");
-      
-      // Get roles for this user - user data is handled by the auth state listener
-      // so we don't need to manually set it here
-      
       return true;
     } catch (err) {
       console.error('Unexpected error during sign in:', err);
