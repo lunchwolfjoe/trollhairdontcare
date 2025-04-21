@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabaseClient';
-import { testApi } from '../lib/supabaseClient';
+import { supabase, auth } from '../lib/simpleAuthClient';
 
 // Environment debug component that shows all environment variables and checks Supabase initialization
 export default function DebugEnv() {
@@ -48,7 +47,7 @@ export default function DebugEnv() {
       setClientStatus('OK: Supabase client properly initialized');
       
       // Run a connection test on mount
-      testConnection();
+      testDirectConnection();
     } catch (err) {
       setClientStatus(`ERROR: ${err.message}`);
     }
@@ -57,11 +56,14 @@ export default function DebugEnv() {
   // Test auth methods
   const testAuth = async () => {
     try {
-      const { data, error } = await supabase.auth.getSession();
+      const session = await auth.getSession();
+      const user = await auth.getUser();
+      
       alert(
         `Auth test results:\n\n` +
-        `Session exists: ${data && data.session ? 'Yes' : 'No'}\n` +
-        `Error: ${error ? error.message : 'None'}\n` +
+        `Session exists: ${session ? 'Yes' : 'No'}\n` +
+        `User logged in: ${user ? 'Yes' : 'No'}\n` +
+        `User email: ${user?.email || 'Not logged in'}\n` +
         `Supabase URL: ${supabase.supabaseUrl}\n` +
         `Key available: ${supabase.supabaseKey ? 'Yes' : 'No'}`
       );
@@ -71,17 +73,56 @@ export default function DebugEnv() {
   };
   
   // Test direct API connection
-  const testConnection = async () => {
+  const testDirectConnection = async () => {
     try {
       setIsConnectionTesting(true);
-      const result = await testApi();
-      setConnectionTestResult(result);
-      console.log('Connection test result:', result);
+      
+      // Get the URL and key from the client
+      const url = supabase.supabaseUrl || import.meta.env.VITE_SUPABASE_URL;
+      const key = supabase.supabaseKey || import.meta.env.VITE_SUPABASE_ANON_KEY;
+      
+      if (!url || !key) {
+        throw new Error('Missing Supabase URL or key');
+      }
+      
+      // Test the connection directly
+      const testUrl = `${url}/rest/v1/roles?select=*&limit=5`;
+      const response = await fetch(testUrl, {
+        method: 'GET',
+        headers: {
+          'apikey': key,
+          'Authorization': `Bearer ${key}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`API Error: ${response.status} ${response.statusText}: ${errorText}`);
+      }
+      
+      const data = await response.json();
+      
+      setConnectionTestResult({
+        success: true,
+        data,
+        details: {
+          url: testUrl,
+          status: response.status,
+          recordCount: Array.isArray(data) ? data.length : 'Not an array',
+          firstRecord: data && data[0] ? JSON.stringify(data[0]) : 'No data'
+        }
+      });
     } catch (err) {
+      console.error('API connection test failed:', err);
       setConnectionTestResult({
         success: false,
         error: err,
-        details: { message: err.message }
+        details: {
+          message: err.message,
+          name: err.name
+        }
       });
     } finally {
       setIsConnectionTesting(false);
@@ -91,14 +132,15 @@ export default function DebugEnv() {
   // Clear all tokens and local storage data
   const clearTokens = () => {
     try {
-      localStorage.removeItem('supabase_auth_token');
+      // Clear all Supabase tokens
       localStorage.removeItem('supabase.auth.token');
+      localStorage.removeItem('supabase_auth_token');
       localStorage.removeItem('sb-ysljpqtpbpugekhrdocq-auth-token');
       
       // Also try to sign out
-      supabase.auth.signOut()
+      auth.signOut()
         .then(() => {
-          alert('All authentication tokens cleared');
+          alert('Auth tokens cleared');
           // Refresh the page to apply changes
           window.location.reload();
         })
@@ -141,7 +183,7 @@ export default function DebugEnv() {
           </button>
           
           <button 
-            onClick={testConnection} 
+            onClick={testDirectConnection} 
             style={{
               backgroundColor: '#4caf50',
               color: 'white',
@@ -293,7 +335,8 @@ export default function DebugEnv() {
           padding: '8px 16px',
           borderRadius: '4px',
           textDecoration: 'none',
-          marginRight: '10px'
+          marginRight: '10px',
+          display: 'inline-block'
         }}>
           Go to Login
         </a>
@@ -303,7 +346,8 @@ export default function DebugEnv() {
           color: 'white',
           padding: '8px 16px',
           borderRadius: '4px',
-          textDecoration: 'none'
+          textDecoration: 'none',
+          display: 'inline-block'
         }}>
           Go to Home
         </a>
