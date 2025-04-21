@@ -1,13 +1,16 @@
 import { supabase as supabaseClient } from './supabaseClient';
 
+// Store the client instance once to avoid recursive imports
+let clientInstance = supabaseClient;
+
 // Export a consistent interface for getSupabaseClient that returns the same
 // supabase instance from supabaseClient.js
 export const getSupabaseClient = () => {
-  if (!supabaseClient) {
+  if (!clientInstance) {
     console.error('Supabase client is not initialized!');
     throw new Error('Supabase client is not available. Check configuration.');
   }
-  return supabaseClient;
+  return clientInstance;
 };
 
 // Helper to get auth headers for API requests

@@ -392,13 +392,88 @@ supabaseInstance.directFetch = async (endpoint, options = {}) => {
 // Test function that can be called directly from the console
 export const testApi = async () => {
   try {
-    console.log('Testing API with correct key...');
-    const result = await supabaseInstance.directFetch('festivals?select=*&limit=5');
-    console.log('API test result:', result);
-    return result;
+    console.log('Testing API connection with these settings:', {
+      url: supabaseUrl,
+      keyAvailable: !!correctKey,
+      clientInitialized: !!supabaseInstance.initialized,
+      endpoint: 'festivals?select=*&limit=5'
+    });
+
+    // First check if the client is properly initialized
+    if (!supabaseInstance.initialized) {
+      console.error('API test failed: Supabase client not initialized');
+      return { 
+        success: false, 
+        error: new Error('Supabase client not initialized'),
+        details: {
+          url: supabaseUrl,
+          keyAvailable: !!correctKey,
+          message: 'The Supabase client was not properly initialized'
+        }
+      };
+    }
+
+    // Try a fetch that deliberately avoids localStorage to test the connection
+    console.log('Testing direct API connection...');
+    
+    const testUrl = `${supabaseUrl}/rest/v1/festivals?select=*&limit=5`;
+    console.log(`Sending request to: ${testUrl}`);
+    
+    const testHeaders = {
+      'apikey': correctKey,
+      'Authorization': `Bearer ${correctKey}`,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    };
+    
+    const testResponse = await originalFetch(testUrl, {
+      method: 'GET',
+      headers: testHeaders
+    });
+    
+    console.log('Direct API test response:', {
+      ok: testResponse.ok,
+      status: testResponse.status,
+      statusText: testResponse.statusText
+    });
+    
+    if (!testResponse.ok) {
+      const errorText = await testResponse.text();
+      console.error('API test failed with status:', testResponse.status, errorText);
+      return { 
+        success: false, 
+        error: new Error(`API Error: ${testResponse.status} ${testResponse.statusText}`),
+        details: {
+          statusCode: testResponse.status,
+          response: errorText,
+          url: testUrl
+        }
+      };
+    }
+    
+    const testData = await testResponse.json();
+    console.log('API test succeeded:', testData);
+    
+    return { 
+      success: true, 
+      data: testData,
+      details: {
+        method: 'Direct fetch',
+        url: testUrl,
+        recordCount: Array.isArray(testData) ? testData.length : 'Not an array'
+      }
+    };
   } catch (err) {
-    console.error('API test failed:', err);
-    return { success: false, error: err };
+    console.error('API test failed with exception:', err);
+    return { 
+      success: false, 
+      error: err,
+      details: {
+        message: err.message,
+        stack: err.stack,
+        name: err.name
+      }
+    };
   }
 };
 

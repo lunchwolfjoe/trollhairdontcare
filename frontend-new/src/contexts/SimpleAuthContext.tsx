@@ -1,6 +1,9 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import { getSupabaseClient } from '../lib/supabase';
 
+// Track if we've already run the auth setup to prevent infinite loops
+let authSetupInitialized = false;
+
 // User type 
 type User = {
   id: string;
@@ -35,12 +38,52 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [error, setError] = useState<string | null>(null);
   const [activeRole, setActiveRole] = useState<string | null>(null);
   const [sessionToken, setSessionToken] = useState<string | null>(null);
+  const [supabaseInitialized, setSupabaseInitialized] = useState(false);
   
-  // Get supabase client
-  const supabase = getSupabaseClient();
+  // Get supabase client safely with error handling
+  let supabase;
+  try {
+    supabase = getSupabaseClient();
+    if (!supabaseInitialized) {
+      setSupabaseInitialized(true);
+    }
+  } catch (err) {
+    console.error('Failed to get Supabase client:', err);
+    if (!error) {
+      setError('Failed to initialize Supabase client');
+      setLoading(false);
+    }
+    // Return early if we can't get the client
+    if (!supabaseInitialized) {
+      return (
+        <SimpleAuthContext.Provider 
+          value={{
+            user: null,
+            loading: false,
+            error: 'Supabase client initialization failed',
+            authenticated: false,
+            activeRole: null,
+            sessionToken: null,
+            signIn: async () => false,
+            signUp: async () => {},
+            signOut: async () => {},
+            getAuthHeaders: () => ({}),
+            setActiveRole: () => {},
+          }}
+        >
+          {children}
+        </SimpleAuthContext.Provider>
+      );
+    }
+  }
 
-  // Fetch user roles by ID
+  // Fetch user roles by ID - with error handling
   const fetchUserRoles = async (userId: string): Promise<string[]> => {
+    if (!supabase) {
+      console.error('Cannot fetch roles: Supabase client not available');
+      return ['volunteer']; // Default role on error
+    }
+    
     try {
       // Get roles for this user from the database
       const { data, error } = await supabase
@@ -63,7 +106,19 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   // Function to load user data
   const loadUserData = async () => {
+    // Prevent recursive calls
+    if (authSetupInitialized) {
+      console.log('Auth setup already initialized, skipping duplicate call');
+      return;
+    }
+    
+    authSetupInitialized = true;
+    
     try {
+      if (!supabase) {
+        throw new Error('Supabase client not available');
+      }
+      
       // Check for session
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       
@@ -151,62 +206,93 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   };
 
-  // Setup auth state
+  // Setup auth state - only once
   useEffect(() => {
-    loadUserData();
-    
-    // Set up session change listener
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_IN' && session) {
-        // Handle the sign-in event
-        try {
-          // Store the session token
-          setSessionToken(session.access_token);
-          
-          const { data, error } = await supabase.auth.getUser();
-          
-          if (error || !data?.user) {
-            console.error('Failed to get user after sign in:', error);
-            return;
+    if (supabase) {
+      loadUserData();
+      
+      // Set up session change listener
+      const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+        if (event === 'SIGNED_IN' && session) {
+          // Handle the sign-in event
+          try {
+            // Store the session token
+            setSessionToken(session.access_token);
+            
+            const { data, error } = await supabase.auth.getUser();
+            
+            if (error || !data?.user) {
+              console.error('Failed to get user after sign in:', error);
+              return;
+            }
+            
+            // Get user ID and fetch roles
+            const userId = data.user.id;
+            const roles = await fetchUserRoles(userId);
+            
+            // Create and set user object
+            setUser({
+              id: userId,
+              email: data.user.email || '',
+              full_name: data.user.user_metadata?.full_name,
+              roles: roles,
+              avatar_url: data.user.user_metadata?.avatar_url,
+            });
+            
+            setActiveRole(roles.includes('admin') ? 'admin' : roles[0]);
+          } catch (err) {
+            console.error('Error handling auth state change:', err);
           }
-          
-          // Get user ID and fetch roles
-          const userId = data.user.id;
-          const roles = await fetchUserRoles(userId);
-          
-          // Create and set user object
-          setUser({
-            id: userId,
-            email: data.user.email || '',
-            full_name: data.user.user_metadata?.full_name,
-            roles: roles,
-            avatar_url: data.user.user_metadata?.avatar_url,
-          });
-          
-          setActiveRole(roles.includes('admin') ? 'admin' : roles[0]);
-        } catch (err) {
-          console.error('Error handling auth state change:', err);
+        } else if (event === 'SIGNED_OUT') {
+          setUser(null);
+          setActiveRole(null);
+          setSessionToken(null);
+        } else if (event === 'TOKEN_REFRESHED' && session) {
+          // Update session token when refreshed
+          setSessionToken(session.access_token);
+          // Token was refreshed, update our user data
+          // We use a different loading approach to avoid recursion
+          try {
+            // Get user data
+            const { data, error } = await supabase.auth.getUser();
+            
+            if (error || !data?.user) {
+              console.error('Failed to get user after token refresh:', error);
+              return;
+            }
+            
+            // Get user ID and fetch roles
+            const userId = data.user.id;
+            const roles = await fetchUserRoles(userId);
+            
+            // Create and set user object
+            setUser({
+              id: userId,
+              email: data.user.email || '',
+              full_name: data.user.user_metadata?.full_name,
+              roles: roles,
+              avatar_url: data.user.user_metadata?.avatar_url,
+            });
+          } catch (err) {
+            console.error('Error handling token refresh:', err);
+          }
         }
-      } else if (event === 'SIGNED_OUT') {
-        setUser(null);
-        setActiveRole(null);
-        setSessionToken(null);
-      } else if (event === 'TOKEN_REFRESHED' && session) {
-        // Update session token when refreshed
-        setSessionToken(session.access_token);
-        // Token was refreshed, update our user data
-        loadUserData();
-      }
-    });
-    
-    // Cleanup
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, []);
+      });
+      
+      // Cleanup
+      return () => {
+        subscription.unsubscribe();
+      };
+    }
+  }, [supabaseInitialized]);
 
   // Sign in function 
   const signIn = async (email: string, password: string) => {
+    if (!supabase) {
+      setError('Authentication service is not available');
+      return false;
+    }
+    
     setLoading(true);
     setError(null);
     
@@ -246,6 +332,11 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   // Sign up function
   const signUp = async (email: string, password: string, userData: { full_name: string }) => {
+    if (!supabase) {
+      setError('Authentication service is not available');
+      return;
+    }
+    
     setLoading(true);
     setError(null);
     
@@ -273,6 +364,13 @@ export const SimpleAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   // Sign out function
   const signOut = async () => {
+    if (!supabase) {
+      setUser(null);
+      setActiveRole(null);
+      setSessionToken(null);
+      return;
+    }
+    
     setLoading(true);
     setError(null);
     

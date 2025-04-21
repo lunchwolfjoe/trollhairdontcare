@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
+import { testApi } from '../lib/supabaseClient';
 
 // Environment debug component that shows all environment variables and checks Supabase initialization
 export default function DebugEnv() {
   const [clientStatus, setClientStatus] = useState('Checking...');
   const [envVars, setEnvVars] = useState({});
   const [showFull, setShowFull] = useState(false);
+  const [connectionTestResult, setConnectionTestResult] = useState(null);
+  const [isConnectionTesting, setIsConnectionTesting] = useState(false);
   
   useEffect(() => {
     // Collect all environment variables
@@ -43,6 +46,9 @@ export default function DebugEnv() {
       }
       
       setClientStatus('OK: Supabase client properly initialized');
+      
+      // Run a connection test on mount
+      testConnection();
     } catch (err) {
       setClientStatus(`ERROR: ${err.message}`);
     }
@@ -61,6 +67,47 @@ export default function DebugEnv() {
       );
     } catch (err) {
       alert(`Auth test error: ${err.message}`);
+    }
+  };
+  
+  // Test direct API connection
+  const testConnection = async () => {
+    try {
+      setIsConnectionTesting(true);
+      const result = await testApi();
+      setConnectionTestResult(result);
+      console.log('Connection test result:', result);
+    } catch (err) {
+      setConnectionTestResult({
+        success: false,
+        error: err,
+        details: { message: err.message }
+      });
+    } finally {
+      setIsConnectionTesting(false);
+    }
+  };
+  
+  // Clear all tokens and local storage data
+  const clearTokens = () => {
+    try {
+      localStorage.removeItem('supabase_auth_token');
+      localStorage.removeItem('supabase.auth.token');
+      localStorage.removeItem('sb-ysljpqtpbpugekhrdocq-auth-token');
+      
+      // Also try to sign out
+      supabase.auth.signOut()
+        .then(() => {
+          alert('All authentication tokens cleared');
+          // Refresh the page to apply changes
+          window.location.reload();
+        })
+        .catch(err => {
+          console.error('Error signing out:', err);
+          alert(`Tokens cleared, but sign out failed: ${err.message}`);
+        });
+    } catch (err) {
+      alert(`Error clearing tokens: ${err.message}`);
     }
   };
 
@@ -86,12 +133,87 @@ export default function DebugEnv() {
               border: 'none',
               borderRadius: '4px',
               cursor: 'pointer',
-              marginTop: '10px'
+              marginTop: '10px',
+              marginRight: '10px'
             }}
           >
             Test Authentication
           </button>
+          
+          <button 
+            onClick={testConnection} 
+            style={{
+              backgroundColor: '#4caf50',
+              color: 'white',
+              padding: '8px 16px',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              marginTop: '10px',
+              marginRight: '10px'
+            }}
+            disabled={isConnectionTesting}
+          >
+            {isConnectionTesting ? 'Testing...' : 'Test API Connection'}
+          </button>
+          
+          <button 
+            onClick={clearTokens} 
+            style={{
+              backgroundColor: '#f44336',
+              color: 'white',
+              padding: '8px 16px',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              marginTop: '10px'
+            }}
+          >
+            Clear All Tokens
+          </button>
         </div>
+        
+        {connectionTestResult && (
+          <div style={{ 
+            marginTop: '15px',
+            padding: '10px', 
+            backgroundColor: connectionTestResult.success ? '#e8f5e9' : '#ffebee',
+            borderRadius: '4px'
+          }}>
+            <h3>API Connection Test Result</h3>
+            <p><strong>Status:</strong> {connectionTestResult.success ? 'Success ✓' : 'Failed ✗'}</p>
+            
+            {connectionTestResult.details && (
+              <div>
+                <p><strong>Details:</strong></p>
+                <pre style={{ 
+                  backgroundColor: '#f5f5f5', 
+                  padding: '10px', 
+                  borderRadius: '4px',
+                  overflow: 'auto',
+                  maxHeight: '200px'
+                }}>
+                  {JSON.stringify(connectionTestResult.details, null, 2)}
+                </pre>
+              </div>
+            )}
+            
+            {connectionTestResult.error && (
+              <div>
+                <p><strong>Error:</strong></p>
+                <pre style={{ 
+                  backgroundColor: '#f5f5f5', 
+                  padding: '10px', 
+                  borderRadius: '4px',
+                  overflow: 'auto',
+                  color: '#f44336'
+                }}>
+                  {connectionTestResult.error.message || JSON.stringify(connectionTestResult.error, null, 2)}
+                </pre>
+              </div>
+            )}
+          </div>
+        )}
       </div>
       
       <div style={{ marginBottom: '20px' }}>
