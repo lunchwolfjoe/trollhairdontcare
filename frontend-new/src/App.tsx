@@ -80,6 +80,7 @@ function SimpleAppRoutes() {
         <Route path="/login" element={<SimpleLogin />} />
         <Route path="/access-denied" element={<AccessDenied />} />
         <Route path="/debug-env" element={<DebugEnv />} />
+        <Route path="/debug" element={<DebugEnv />} />
 
         {/* Default redirect based on authentication and role */}
         <Route
@@ -188,22 +189,7 @@ function App() {
       <CssBaseline />
       <SimpleAuthProvider>
         <BrowserRouter>
-          <Routes>
-            <Route path="/login" element={<SimpleLogin />} />
-            <Route path="/debug" element={<DebugEnv />} />
-            <Route
-              path="/*"
-              element={
-                <>
-                  <NavigationBar />
-                  <RoleSwitcher />
-                  <MainContent />
-                </>
-              }
-            />
-            <Route path="/no-access" element={<NoAccess />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
+          <SimpleAppRoutes />
         </BrowserRouter>
       </SimpleAuthProvider>
     </ThemeProvider>

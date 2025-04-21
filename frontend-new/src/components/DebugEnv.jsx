@@ -163,6 +163,29 @@ export default function DebugEnv() {
           </pre>
         )}
       </div>
+      
+      <div style={{ marginTop: '20px' }}>
+        <a href="/login" style={{
+          backgroundColor: '#1976d2',
+          color: 'white',
+          padding: '8px 16px',
+          borderRadius: '4px',
+          textDecoration: 'none',
+          marginRight: '10px'
+        }}>
+          Go to Login
+        </a>
+        
+        <a href="/" style={{
+          backgroundColor: '#4caf50',
+          color: 'white',
+          padding: '8px 16px',
+          borderRadius: '4px',
+          textDecoration: 'none'
+        }}>
+          Go to Home
+        </a>
+      </div>
     </div>
   );
 } 
