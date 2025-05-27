@@ -7,4 +7,7 @@ README.md
 .env.development.local
 .env.test
 .env.test.local
-.env.production.local 
+.env.production.local
+frontend/src/middleware.ts
+frontend/src/**/middleware.ts
+frontend/**/middleware.ts 
