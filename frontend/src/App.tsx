@@ -43,33 +43,34 @@ import { FestivalsPage } from './pages/FestivalsPage';
 import { CrewsPage } from './pages/CrewsPage';
 import { TasksPage } from './pages/TasksPage';
 import { AdminPage } from './pages/AdminPage';
+import { supabase } from './lib/supabaseClient';
 
 function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      
+      <AuthProvider>
         <Router>
           <Routes>
             {/* Public routes */}
             <Route path="/login" element={<LoginPage />} />
             <Route path="/access-denied" element={<UnauthorizedPage />} />
 
-            {/* Protected routes */}
-            <Route element={<ProtectedRoute> <Layout /> </ProtectedRoute>}>
-               <Route path="/dashboard" element={<DashboardPage />} />
-               <Route path="/festivals/*" element={<FestivalsPage />} />
-               <Route path="/crews/*" element={<CrewsPage />} />
-               <Route path="/tasks/*" element={<TasksPage />} />
-               <Route path="/admin/*" element={<AdminPage />} />
-            </Route>
+            {/* Protected routes, wrapped individually */}
+            <Route path="/dashboard" element={<ProtectedRoute><Layout><DashboardPage /></Layout></ProtectedRoute>} />
+            <Route path="/festivals/*" element={<ProtectedRoute><Layout><FestivalsPage /></Layout></ProtectedRoute>} />
+            <Route path="/crews/*" element={<ProtectedRoute><Layout><CrewsPage /></Layout></ProtectedRoute>} />
+            <Route path="/tasks/*" element={<ProtectedRoute><Layout><TasksPage /></Layout></ProtectedRoute>} />
+            <Route path="/admin/*" element={<ProtectedRoute><Layout><AdminPage /></Layout></ProtectedRoute>} />
 
-            {/* Catch all - redirect to dashboard if authenticated, login otherwise (handled by ProtectedRoute) */}
+            {/* Catch all - redirect to dashboard if authenticated, login otherwise (handled by ProtectedRoute logic for '/') */}
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
+             {/* Fallback for the root path, also protected */}
+            <Route path="/" element={<ProtectedRoute><Layout><DashboardPage /></Layout></ProtectedRoute>} />
 
           </Routes>
         </Router>
-
+      </AuthProvider>
     </ThemeProvider>
   );
 }
