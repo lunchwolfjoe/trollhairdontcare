@@ -92,13 +92,7 @@ export default {
 // Configure which paths the middleware should run on
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except:
-     * 1. /api/auth/* (auth endpoints)
-     * 2. /_next/* (Next.js internals)
-     * 3. /static/* (static files)
-     * 4. /favicon.ico, /sitemap.xml (static files)
-     */
-    '/((?!api/auth|_next|static|favicon.ico|sitemap.xml).*)',
+    // Match all paths except static assets and API routes
+    '/((?!assets|api/auth|favicon.ico).*)',
   ],
 } 
