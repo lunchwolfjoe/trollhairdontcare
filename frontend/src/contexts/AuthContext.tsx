@@ -1,154 +1,135 @@
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { User } from '@supabase/supabase-js';
-import { supabase } from '../lib/supabaseClient';
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { authService } from '../services/authService';
+import { AuthContextType, Role, Session, User } from '../types/auth';
 
-interface AuthContextType {
-  user: User | null;
-  role: string | null;
-  loading: boolean;
-  signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string) => Promise<void>;
-  signOut: () => Promise<void>;
-  // Dev mode controls
-  isDevMode: boolean;
-  setDevMode: (enabled: boolean) => void;
-  devUserRole: string | null;
-  setDevUserRole: (role: string | null) => void;
-  setDevRole?: (role: string | null) => void;
-}
+export const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-// Development mode flag
-const DEV_MODE = true; // Set this to true to bypass authentication
-
-export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [role, setRole] = useState<string | null>('coordinator'); // Set default role for development
-  const [loading, setLoading] = useState(true);
-  const [isDevMode, setIsDevMode] = useState(DEV_MODE);
-  const [devUserRole, setDevUserRole] = useState<string | null>('coordinator');
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const navigate = useNavigate();
+  const [session, setSession] = useState<Session>({
+  user: null,
+  roles: [],
+    isLoading: true,
+    error: null,
+});
 
   useEffect(() => {
-    if (isDevMode) {
-      // In development mode, create a mock user based on selected role
-      const mockUser = {
-        id: "dev-user-id",
-        email: "dev@example.com",
-        role: devUserRole,
-      } as User;
-      setUser(mockUser);
-      setRole(devUserRole);
-      setLoading(false);
-      return;
-    }
+    console.log('AuthContext: Initializing auth...');
+    // Check for existing session on mount
+    const initializeAuth = async () => {
+      try {
+        const user = await authService.getCurrentUser();
+        if (user) {
+          const roles = await authService.getUserRoles(user.id);
+          console.log('AuthContext: User found', user.id, 'Roles:', roles);
+          setSession({
+            user,
+            roles: roles.map(r => r.role),
+            isLoading: false,
+            error: null,
+          });
+        } else {
+          console.log('AuthContext: No user found');
+          setSession({
+            user: null,
+            roles: [],
+            isLoading: false,
+            error: null,
+          });
+        }
+      } catch (error) {
+        console.error('AuthContext: Error during initialization', error);
+        setSession({
+          user: null,
+          roles: [],
+          isLoading: false,
+          error: error instanceof Error ? error : new Error('Failed to initialize auth'),
+        });
+        }
+    };
 
-    // Check active sessions and sets the user
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchUserRole(session.user.id);
-      } else {
-        setLoading(false);
-      }
-    });
-
-    // Listen for changes on auth state (logged in, signed out, etc.)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchUserRole(session.user.id);
-      } else {
-        setRole(null);
-        setLoading(false);
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, [isDevMode, devUserRole]);
-
-  const fetchUserRole = async (userId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", userId)
-        .single();
-
-      if (error) throw error;
-      setRole(data?.role || null);
-    } catch (error) {
-      console.error("Error fetching user role:", error);
-      setRole(null);
-    } finally {
-      setLoading(false);
-    }
-  };
+    initializeAuth();
+  }, []);
 
   const signIn = async (email: string, password: string) => {
-    if (isDevMode) {
-      console.log("Development mode: Sign in attempted with", email);
-      return;
+    try {
+      console.log('AuthContext: Signing in...');
+      setSession(prev => ({ ...prev, isLoading: true, error: null }));
+      const user = await authService.signIn(email, password);
+      if (user) {
+        const roles = await authService.getUserRoles(user.id);
+        console.log('AuthContext: Sign in successful', user.id, 'Roles:', roles);
+        setSession({
+          user,
+          roles: roles.map(r => r.role),
+          isLoading: false,
+          error: null,
+        });
+        navigate('/dashboard');
+      }
+    } catch (error) {
+      console.error('AuthContext: Sign in failed', error);
+      setSession(prev => ({
+        ...prev,
+        isLoading: false,
+        error: error instanceof Error ? error : new Error('Failed to sign in'),
+      }));
+      throw error;
     }
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-    if (error) throw error;
-  };
-
-  const signUp = async (email: string, password: string) => {
-    if (isDevMode) {
-      console.log("Development mode: Sign up attempted with", email);
-      return;
-    }
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: `${window.location.origin}/volunteer/profile`,
-      },
-    });
-    if (error) throw error;
   };
 
   const signOut = async () => {
-    if (isDevMode) {
-      console.log("Development mode: Sign out attempted");
-      return;
+    try {
+      console.log('AuthContext: Signing out...');
+      setSession(prev => ({ ...prev, isLoading: true, error: null }));
+      await authService.signOut();
+      console.log('AuthContext: Sign out successful');
+      setSession({
+        user: null,
+        roles: [],
+        isLoading: false,
+        error: null,
+      });
+      navigate('/login');
+    } catch (error) {
+      console.error('AuthContext: Sign out failed', error);
+      setSession(prev => ({
+        ...prev,
+        isLoading: false,
+        error: error instanceof Error ? error : new Error('Failed to sign out'),
+      }));
+      throw error;
     }
-    const { error } = await supabase.auth.signOut();
-    if (error) throw error;
   };
 
-  const setDevRole = (newRole: string | null) => {
-    setRole(newRole);
+  const hasRole = (role: Role): boolean => {
+    return session.roles.includes(role);
   };
 
-  return (
-    <AuthContext.Provider
-      value={{
-        user,
-        role,
-        loading,
-        signIn,
-        signUp,
-        signOut,
-        // Dev mode controls
-        isDevMode,
-        setDevMode: setIsDevMode,
-        devUserRole,
-        setDevUserRole,
-        setDevRole,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
-  );
+  const hasAnyRole = (roles: Role[]): boolean => {
+    return roles.some(role => session.roles.includes(role));
+  };
+
+  const hasAllRoles = (roles: Role[]): boolean => {
+    return roles.every(role => session.roles.includes(role));
+  };
+
+  const value: AuthContextType = {
+    ...session,
+    signIn,
+    signOut,
+    hasRole,
+    hasAnyRole,
+    hasAllRoles,
+  };
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {
   const context = useContext(AuthContext);
+   console.log('useAuth: Context value:', context === undefined ? 'undefined' : 'defined', 'isLoading:', context?.isLoading);
   if (context === undefined) {
     throw new Error('useAuth must be used within an AuthProvider');
   }
