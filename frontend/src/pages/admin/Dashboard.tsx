@@ -1,4 +1,4 @@
-tryimport React from 'react';
+import React from 'react';
 import {
   Box,
   Grid,
@@ -66,7 +66,7 @@ export function AdminDashboard() {
   return (
     <Box>
       <Typography variant="h4" gutterBottom>
-        Welcome back, {user?.full_name}
+        Welcome back, {user?.email}
       </Typography>
       <Typography variant="subtitle1" color="text.secondary" gutterBottom>
         Here's what's happening in your festival management system
