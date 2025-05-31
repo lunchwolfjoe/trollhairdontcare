@@ -9,26 +9,53 @@ import {
   Container,
   Paper,
   Alert,
+  FormControlLabel,
+  Checkbox,
 } from '@mui/material';
 
-export function Login() {
+export function SignUp() {
   const navigate = useNavigate();
-  const { signIn } = useAuth();
+  const { signUp } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [acceptTerms, setAcceptTerms] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setSuccess(null);
+
+    // Validation
+    if (password !== confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters long');
+      return;
+    }
+
+    if (!acceptTerms) {
+      setError('Please accept the terms and conditions');
+      return;
+    }
+
     setLoading(true);
 
     try {
-      await signIn(email, password);
-      navigate('/dashboard');
+      await signUp(email, password);
+      setSuccess('Registration successful! Please check your email to confirm your account.');
+      // Optionally redirect to login after a delay
+      setTimeout(() => {
+        navigate('/login');
+      }, 3000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to sign in');
+      setError(err instanceof Error ? err.message : 'Failed to create account');
     } finally {
       setLoading(false);
     }
@@ -39,12 +66,18 @@ export function Login() {
       <Box sx={{ mt: 8 }}>
         <Paper elevation={3} sx={{ p: 4 }}>
           <Typography variant="h4" component="h1" gutterBottom align="center">
-            Login
+            Sign Up
           </Typography>
           
           {error && (
             <Alert severity="error" sx={{ mb: 2 }}>
               {error}
+            </Alert>
+          )}
+
+          {success && (
+            <Alert severity="success" sx={{ mb: 2 }}>
+              {success}
             </Alert>
           )}
 
@@ -70,25 +103,48 @@ export function Login() {
               label="Password"
               type="password"
               id="password"
-              autoComplete="current-password"
+              autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               disabled={loading}
+              helperText="Password must be at least 6 characters long"
+            />
+            <TextField
+              margin="normal"
+              required
+              fullWidth
+              name="confirmPassword"
+              label="Confirm Password"
+              type="password"
+              id="confirmPassword"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              disabled={loading}
+            />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={acceptTerms}
+                  onChange={(e) => setAcceptTerms(e.target.checked)}
+                  disabled={loading}
+                />
+              }
+              label="I accept the terms and conditions"
             />
             <Button
               type="submit"
               fullWidth
               variant="contained"
               sx={{ mt: 3, mb: 2 }}
-              disabled={loading}
+              disabled={loading || !acceptTerms}
             >
-              {loading ? 'Signing in...' : 'Sign In'}
+              {loading ? 'Creating Account...' : 'Sign Up'}
             </Button>
             <Box textAlign="center">
               <Typography variant="body2">
-                Don't have an account?{' '}
-                <Link to="/signup" style={{ textDecoration: 'none' }}>
-                  Sign Up
+                Already have an account?{' '}
+                <Link to="/login" style={{ textDecoration: 'none' }}>
+                  Sign In
                 </Link>
               </Typography>
             </Box>

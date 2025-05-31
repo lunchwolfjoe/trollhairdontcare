@@ -3,22 +3,22 @@
   "version": "1.0.0",
   "private": true,
   "workspaces": [
-    "frontend-new"
+    "frontend"
   ],
   "scripts": {
-    "dev": "cd frontend-new && npm run dev",
+    "dev": "cd frontend && npm run dev",
     "dev:safe": "powershell -ExecutionPolicy Bypass -File ./tools/start-dev.ps1",
     "dev:bat": "tools\\start-dev.bat",
     "start": "start-dev.bat",
     "restart": "restart-dev.bat",
     "ps-restart": "powershell -ExecutionPolicy Bypass -File ./restart-dev.ps1",
-    "fix-react": "cd frontend-new && fix-react-mismatch.bat",
+    "fix-react": "cd frontend && fix-react-mismatch.bat",
     "clean-restart": "clean-restart.bat",
     "fix-date-fns": "date-fns-fix.bat",
-    "build": "cd frontend-new && npm run build",
-    "preview": "cd frontend-new && npm run preview",
-    "lint": "cd frontend-new && npm run lint",
-    "test": "cd frontend-new && npm run test"
+    "build": "cd frontend && npm run build",
+    "preview": "cd frontend && npm run preview",
+    "lint": "cd frontend && npm run lint",
+    "test": "cd frontend && npm run test"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.6.3",
@@ -26,6 +26,7 @@
     "@testing-library/user-event": "^14.6.1",
     "http-proxy": "^1.18.1",
     "jsdom": "^26.1.0",
+    "supabase": "^2.23.4",
     "typescript": "^5.0.0",
     "vitest": "^3.1.1"
   },

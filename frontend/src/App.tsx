@@ -35,9 +35,10 @@ import { AccessDenied } from "./pages/AccessDenied";
 import { VolunteerCommunications } from "./features/volunteer/VolunteerCommunications";
 import { AuthProvider } from './contexts/AuthContext';
 import { Layout } from './components/layout/Layout';
-import { ProtectedRoute } from './components/auth/ProtectedRoute';
+import { ProtectedRoute } from './components/ProtectedRoute';
 import { UnauthorizedPage } from './pages/UnauthorizedPage';
-import { LoginPage } from './pages/LoginPage';
+import { Login } from './pages/Login';
+import { SignUp } from './pages/SignUp';
 import { DashboardPage } from './pages/DashboardPage';
 import { FestivalsPage } from './pages/FestivalsPage';
 import { CrewsPage } from './pages/CrewsPage';
@@ -53,7 +54,8 @@ function App() {
         <Router>
           <Routes>
             {/* Public routes */}
-            <Route path="/login" element={<LoginPage />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/signup" element={<SignUp />} />
             <Route path="/access-denied" element={<UnauthorizedPage />} />
 
             {/* Protected routes, wrapped individually */}
@@ -67,7 +69,6 @@ function App() {
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
              {/* Fallback for the root path, also protected */}
             <Route path="/" element={<ProtectedRoute><Layout><DashboardPage /></Layout></ProtectedRoute>} />
-
           </Routes>
         </Router>
       </AuthProvider>
