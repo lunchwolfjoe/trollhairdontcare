@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300" viewBox="0 0 300 300">
+  <circle cx="150" cy="150" r="140" fill="#8DC7BB" stroke="#1D3052" stroke-width="4" />
+  <ellipse cx="150" cy="150" rx="100" ry="90" fill="#FFF5E9" stroke="#1D3052" stroke-width="3" />
+  <text x="150" y="130" font-family="Arial" font-size="24" font-weight="bold" text-anchor="middle" fill="#F04B66">KERRVILLE</text>
+  <text x="150" y="160" font-family="Arial" font-size="24" font-weight="bold" text-anchor="middle" fill="#F04B66">FOLK</text>
+  <text x="150" y="190" font-family="Arial" font-size="24" font-weight="bold" text-anchor="middle" fill="#F04B66">FESTIVAL</text>
+  <text x="150" y="220" font-family="Arial" font-size="14" text-anchor="middle" fill="#F04B66">Since 1972</text>
+  <path d="M215,70 C230,80 235,95 225,110 C215,125 195,130 175,125" fill="none" stroke="#F59B42" stroke-width="10" />
+  <path d="M80,80 C95,70 110,65 125,75 C140,85 145,105 140,125" fill="none" stroke="#4CAF50" stroke-width="10" />
+</svg> 

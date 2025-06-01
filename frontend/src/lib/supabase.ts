@@ -1,62 +1,69 @@
 import { createClient } from '@supabase/supabase-js';
-import type { Database } from '../types/supabase';
+import { config } from '../config';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+// Initialize the Supabase client with the URL and anon key from environment variables or config fallback
+const supabaseUrl = config.supabaseUrl;
+const supabaseAnonKey = config.supabaseAnonKey;
 
+// Log error if env variables not found - this helps debugging
 if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error('Missing Supabase environment variables');
+  console.error('Supabase environment variables are missing!', {
+    url: supabaseUrl ? 'Found' : 'Missing',
+    key: supabaseAnonKey ? 'Found' : 'Missing'
+  });
+  
+  // Alert developers in development mode
+  if (import.meta.env.DEV) {
+    console.warn('Running in development mode with missing Supabase credentials!');
+    setTimeout(() => {
+      alert('Supabase credentials missing. Check console for details.');
+    }, 1000);
+  }
 }
 
-export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey);
+// Create and export the Supabase client
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true
+  }
+});
 
-// Helper function to get the current user's profile
-export const getCurrentUserProfile = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return null;
+// Store the client instance once to avoid recursive imports
+let clientInstance = supabase;
 
-    const { data: profile, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single();
+// Export a consistent interface for getSupabaseClient that returns the same
+// supabase instance from supabaseClient.js
+export const getSupabaseClient = () => {
+  if (!clientInstance) {
+    console.error('Supabase client is not initialized!');
+    throw new Error('Supabase client is not available. Check configuration.');
+  }
+  return clientInstance;
+};
 
-    if (error) {
-        console.error('Error fetching user profile:', error);
-        return null;
+// Helper to get auth headers for API requests
+export const getAuthHeaders = async () => {
+  try {
+    const supabase = getSupabaseClient();
+    const { data } = await supabase.auth.getSession();
+    
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    
+    // Only include auth header if we have a session
+    if (data.session?.access_token) {
+      headers['Authorization'] = `Bearer ${data.session.access_token}`;
     }
-
-    return profile;
-};
-
-// Helper function to check if a user has a specific role
-export const hasRole = async (roleName: string) => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return false;
-
-    const { data: roles, error } = await supabase
-        .from('user_roles')
-        .select(`
-      role:roles (
-        name
-      )
-    `)
-        .eq('user_id', user.id);
-
-    if (error) {
-        console.error('Error checking user role:', error);
-        return false;
-    }
-
-    return roles.some(r => r.role?.name === roleName);
-};
-
-// Helper function to check if a user is an admin
-export const isAdmin = async () => {
-    return hasRole('admin');
-};
-
-// Helper function to check if a user is a coordinator
-export const isCoordinator = async () => {
-    return hasRole('coordinator');
+    
+    return headers;
+  } catch (error) {
+    console.error('Error getting auth headers:', error);
+    // Return basic headers on error
+    return {
+      'Content-Type': 'application/json',
+    };
+  }
 }; 

@@ -1,0 +1,15 @@
+# Supabase CLI config (generated for TrollHairDontCare project)
+# (Replace the following values with your project's values if needed.)
+
+[project]
+project_id = "prhtykdkberbiravodse"
+project_ref = "prhtykdkberbiravodse"
+project_url = "https://prhtykdkberbiravodse.supabase.co"
+anon_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InByaHR5a2RrYmVyYmlyYXZvZHNlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDgwMjc1NjQsImV4cCI6MjA2MzYwMzU2NH0.EOJjHjxX1MRuituJvX4NxnVOP-6ipQTBJiZsJnzgXdk"
+
+[db]
+# (Optional: if you have a local DB, you can uncomment and set your local DB URL.)
+# local_db_url = "postgresql://postgres:postgres@localhost:54322/postgres"
+
+# (Optional: if you have a "migrations" folder, you can uncomment and set its path.)
+# migrations_dir = "backend/migrations" 
