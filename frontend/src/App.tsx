@@ -7,6 +7,7 @@ import { Login } from './pages/Login';
 import { SignUp } from './pages/SignUp';
 import { DashboardPage } from './pages/DashboardPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import { SupabaseTest } from './components/SupabaseTest';
 
 function App() {
   return (
@@ -14,6 +15,9 @@ function App() {
       <CssBaseline />
       <AuthProvider>
         <BrowserRouter>
+          {/* Show connection test in development */}
+          {import.meta.env.DEV && <SupabaseTest />}
+          
           <Routes>
             {/* Public routes */}
             <Route path="/login" element={<Login />} />
